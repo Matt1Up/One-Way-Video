@@ -25,25 +25,34 @@ venv/
 *.tmp
 *.log
 
-# Top-level runtime dirs you listed
+# ---------- Runtime dirs ----------
 run/
 downloads/
 captures/
 
-# If you prefer to keep run/ tracked with .gitkeep, comment the line above
-# and ignore its volatile children instead:
-# run/bundles/
-# run/dumps/
-# run/logs/
-# run/locks/
-# run/web-server/*.json
-# run/web-server/live_hash_loop.txt
-# run/*.txt
-# run/*.json
-# run/*.har
-# run/*.dump
-# run/**/*.har
-# run/**/*.dump
+# Keep placeholders so structure exists
+!captures/.gitkeep
+!downloads/.gitkeep
+!run/.gitkeep
+!run/bundles/.gitkeep
+!run/dumps/.gitkeep
+!run/dumps/processed/.gitkeep
+!run/logs/.gitkeep
+!run/locks/.gitkeep
+!run/web-server/.gitkeep
+
+# Allow web-server SOURCE files to be versioned
+!run/web-server/*.py
+!run/web-server/*.html
+!run/web-server/*.css
+!run/web-server/*.js
+!run/web-server/*.tsv
+!run/web-server/viewer.config.json
+
+# Still ignore web-server generated artifacts
+run/web-server/*.json
+run/web-server/live_hash_loop.txt
+run/web-server/overlay_text.txt
 
 # ---------- Network capture & generated artifacts ----------
 *.pcap
@@ -76,13 +85,3 @@ signature/private/
 signature/*.pem
 signature/*.p12
 signature/*.key
-
-# ---------- Web viewer build outputs ----------
-run/web-server/*.json
-run/web-server/live_hash_loop.txt
-run/web-server/overlay_text.txt
-
-# ---------- Shell scripts & line endings handled in .gitattributes ----------
-
-# ---------- Go toolchains / big blobs ----------
-time/roughtime/go*.tar.gz
