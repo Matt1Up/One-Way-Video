@@ -1,0 +1,39 @@
+{
+  "profiles": [
+    {
+      "name": "File Downloads",
+      "json_file": "run/downloaded_files.json",
+      "live_file": "run/web-server/live_hash_loop.txt",
+      "image_dirs": ["run/bundles"],
+      "live_filters": "run/web-server/string_filter.tsv"
+    },
+    {
+      "name": "Cards",
+      "json_file": "run/web-server/combined.json",
+      "live_file": "run/web-server/live_hash_loop.txt",
+      "image_dirs": ["run/bundles"],
+      "live_filters": "run/web-server/string_filter.tsv"
+    },
+    {
+      "name": "State",
+      "json_file": "run/state.json",
+      "live_file": "run/web-server/live_hash_loop.txt",
+      "image_dirs": ["run/bundles"],
+      "live_filters": "run/web-server/string_filter.tsv"
+    },
+    {
+      "name": "Archive",
+      "json_file": "archive/downloaded_files.json",
+      "live_file": "archive/live_hash_loop.txt",
+      "image_dirs": ["archive/bundles", "$HOME/archive/images"],
+      "live_filters": "run/web-server/string_filter.tsv"
+    },
+    {
+      "name": "Temp",
+      "json_file": "/tmp/downloaded_files.json",
+      "live_file": "/tmp/live_hash_loop.txt",
+      "image_dirs": ["/tmp/captures", "/tmp/images"],
+      "live_filters": "run/web-server/string_filter.tsv"
+    }
+  ]
+}

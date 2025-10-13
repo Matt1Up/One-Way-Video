@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Local Viewer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Local Viewer</h1>
+    <div class="meta">
+      <!-- (Status removed to avoid layout glitches) -->
+      <label class="view">
+        View
+        <select id="viewSelect">
+          <option value="json" selected>JSON viewer</option>
+          <option value="live">Live feed</option>
+          <option value="cards">Cards</option>
+          <option value="cards">Cards</option>
+        </select>
+      </label>
+
+      <label class="profile">
+        Profile
+        <select id="profileSelect">
+          <option>Loading…</option>
+        </select>
+      </label>
+
+      <label class="poll">
+        Refresh <input id="interval" type="number" min="0" step="1000" value="2000"> ms
+      </label>
+      <button id="refresh">Refresh now</button>
+
+      <label class="font-size">
+        Font size <input id="fontSlider" type="range" min="12" max="48" value="12">
+        <span id="fontSizeValue">12px</span>
+      </label>
+
+      <label class="img-scale">
+        Image scale <input id="imgSlider" type="range" min="1" max="2" step="0.01" value="1.0">
+        <span id="imgScaleValue">100%</span>
+      </label>
+
+      <label class="toggle">
+        Auto-refresh <input id="autoRefresh" type="checkbox" checked>
+      </label>
+
+      <label class="toggle">
+        Apply filter <input id="filterToggle" type="checkbox" checked>
+      </label>
+    </div>
+  </header>
+
+  <main>
+    <pre id="pretty"></pre>
+    <div id="feed" class="hidden"></div>
+    <div id="cards" class="hidden"></div>
+  </main>
+
+  <footer>
+    <small></small>
+  </footer>
+
+  <script src="app.js?v=10"></script>
+</body>
+</html>

@@ -1,0 +1,265 @@
+:root {
+  --bg: #0e0f12;
+  --panel: #15161A;
+  --text: #e6e8eb;
+  --muted: #9aa3ad;
+  --accent: #7cc4ff;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* ===== Base (unchanged) ===== */
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  line-height: 1.4;
+}
+
+header {
+  /* position: sticky; top: 0; */
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 9999;
+  background: linear-gradient(to bottom, rgba(20,22,26,0.95), rgba(20,22,26,0.80));
+  backdrop-filter: blur(4px);
+  padding: 12px 12px;
+  border-bottom: 1px solid #222831;
+  display: flex; align-items: center; justify-content: space-between;
+}
+h1 { margin: 0; font-size: 18px; color: var(--accent); }
+.meta { display: flex; gap: 12px; align-items: center; color: var(--muted); }
+.poll input, .font-size input, .img-scale input, .view select {
+  background: #0f1115; color: var(--text); border: 1px solid #2a2f3a; border-radius: 6px; padding: 4px 6px;
+}
+button {
+  background: #1f2430; color: var(--text); border: 1px solid #2a2f3a;
+  border-radius: 8px; padding: 6px 10px; cursor: pointer;
+}
+button:hover { border-color: #3a4250; }
+
+main { padding: 16px; }
+
+/* JSON pre */
+#pretty {
+  background: var(--panel);
+  border: 1px solid #1f2430;
+  border-radius: 16px;
+  padding: 16px;
+  overflow: auto;
+  max-height: calc(100vh - 140px);
+  font: 13px/1.7 var(--mono);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-variant-ligatures: none;
+}
+
+/* JSON-mode highlighting */
+.key   { color: #ffd479; }
+.str   { color: #8bd5ff; }
+.num   { color: #a1e34b; }
+.bool  { color: #ffcc66; }
+.null  { color: #ff99aa; }
+.punc  { color: #7a8594; }
+
+/* Row-mode / toggles */
+.val     { color: #8bd5ff; }
+.fileval { color: #a1e34b; font-weight: 500; }
+.toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.toggle input { accent-color: var(--accent); }
+
+/* Hard hide */
+.hidden { display: none !important; }
+
+/* Live feed (keep your original spacing) */
+#feed {
+  display: grid;
+  gap: 32px;
+  grid-template-columns: 1fr;
+  justify-items: center; /* center items horizontally */
+}
+.card {
+  background: var(--panel);
+  border: 1px solid #1f2430;
+  border-radius: 12px;
+  padding: 18px 20px;
+}
+.card pre {
+  margin: 0;
+  font: 13px/1.7 var(--mono);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-variant-ligatures: none;
+}
+.img-wrap {
+  background: var(--panel);
+  border: 1px solid #1f2430;
+  border-radius: 12px;
+  padding: 34px;
+  width: max-content;
+}
+.live-img {
+  display: block;
+  image-rendering: pixelated;
+  max-width: none; /* width set via JS to naturalWidth * scale */  
+}
+
+/* ===== Fixed header offset (unchanged) ===== */
+:root { --header-h: 96px; }
+header { position: fixed; top: 0; left: 0; right: 0; z-index: 9999; }
+body   { padding-top: var(--header-h) !important; }
+html   { scroll-padding-top: var(--header-h); }
+
+/* ===== Cards view (structure only, no spacing changes to your cards) ===== */
+#cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 28px;
+}
+
+/* Keep your original card spacing; only define inner grid for key/value rows */
+.card .kv {
+  display: grid;
+  grid-template-columns: 180px 1fr; /* your original width */
+  gap: 28px;
+  align-items: baseline;
+  font-family: var(--mono, ui-monospace, Menlo, Monaco, Consolas, "Roboto Mono", monospace);
+}
+.card .kv .k { color: var(--muted); }
+.card .kv .v { color: var(--text); word-break: break-word; }
+
+/* Sections (collapsible) — keep your original spacing */
+.sect {
+  margin-top: 10px;
+  border-top: 1px dashed #2a2f3a;
+  padding-top: 10px;
+}
+.sect-head {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 6px;
+}
+.sect-body { margin-left: 6px; }
+.sect.collapsed > .sect-body { display: none; }
+.sub-body { margin: 8px 0 0 14px; border-left: 2px solid #2a2f3a; padding-left: 10px; }
+
+/* Pretty blocks inside cards */
+.card pre.obj {
+  margin: 0;
+  font-family: var(--mono, ui-monospace, Menlo, Monaco, Consolas);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+/* ===== Button-only tweaks (uniform width + lower height, scalable) ===== */
+
+/* Section buttons (prev, image, streams, last_files, downloads) */
+.toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono, ui-monospace, Menlo, Monaco, Consolas);
+  font-size: 1em;          /* inherits slider size */
+  line-height: 1.1;
+  width: 12ch;             /* uniform width without touching cards */
+  padding: 0.25em 0.6em;   /* lower height */
+  background: #1f2430;
+  color: var(--text);
+  border: 1px solid #2a2f3a;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Sub-toggle badges (0..4) */
+.sub-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono, ui-monospace, Menlo, Monaco, Consolas);
+  font-size: 1em;          /* inherits slider size */
+  width: 3.0em;            /* square, even */
+  height: 2.0em;
+  line-height: 1.15;          /* compact */
+  padding: 0.0;              /* exact square */
+  background: #1f2430;
+  color: var(--text);
+  border: 1px solid #2a2f3a;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.toggle-btn[aria-expanded="false"],
+.sub-toggle[aria-expanded="false"] { opacity: 0.8; }
+.toggle-btn:hover, .sub-toggle:hover { border-color: #3a4250; }
+
+/* Keep images centered and text cards stretching (does not change your paddings) */
+#feed { grid-template-columns: 1fr; justify-items: center; }
+.card { justify-self: stretch; }
+.img-wrap { justify-self: center; margin: 0 auto; width: max-content; }
+
+/* Live text cards: shrink to content and center (override the global stretch) */
+#feed .card.text-card {
+  justify-self: center !important;      /* beats the base .card stretch */
+  display: inline-block;                /* lets the card shrink to its content */
+  width: auto;                          /* no fixed width */
+  max-width: min(200vw, 236ch);          /* wrap nicely before it gets too wide */
+}
+
+/* ensure the text inside wraps; scales with your slider */
+#feed .card.text-card > pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+
+/* === Button polish & spacing (sections + 0..4 badges) === */
+
+/* Section toggles (prev, image, streams, last files, downloads) */
+.toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1em;                 /* scales with your slider */
+  line-height: 1.15;
+  width: 16ch;                    /* wider so labels don’t bump */
+  padding: 0.28em 0.8em;          /* a hair taller/nicer */
+  background: #1f2430;
+  color: var(--text);
+  border: 1px solid #2a2f3a;
+  border-radius: 8px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.35) inset, 0 1px 4px rgba(0,0,0,.25);
+  white-space: nowrap;
+}
+
+/* Make the section buttons breathe a bit */
+.sect-head .toggle-btn { margin: 6px 0; }
+
+/* Sub-toggles (0..4) */
+.sub-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1em;                 /* scales with slider */
+  width: 2.6em;                   /* wider square badge */
+  height: 2.6em;
+  line-height: 1;
+  padding: 0;
+  background: #1f2430;
+  color: var(--text);
+  border: 1px solid #2a2f3a;
+  border-radius: 10px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.35) inset, 0 1px 4px rgba(0,0,0,.25);
+  margin: 4px 6px 4px 0;          /* spacing so they don’t touch */
+}
+
+/* Ensure the left column can host badges without crowding */
+.card .kv .k {
+  display: flex;                  /* allows badges to sit nicely */
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;                /* wrap if many badges */
+}
+
+
