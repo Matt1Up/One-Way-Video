@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>tshark live</title>
+<style id="dynamic-style"></style>
+<pre id="out"></pre>
+<script>
+// === CUSTOM VARIABLES ===
+const bgColor   = "#0b0e11";   // background
+const fontColor = "#e6e6e6";   // text color
+const fontSize  = "15px";      // font size
+
+// Apply them to the page
+document.getElementById("dynamic-style").textContent = `
+  body { background:${bgColor}; color:${fontColor}; margin:10px; }
+  #out  { font:${fontSize}/1.35 monospace; white-space:pre-wrap; }
+  .line { border-bottom:1px dotted #333; padding:2px 0; }
+`;
+
+// === WEBSOCKET VIEWER ===
+const WS_URL = 'ws://127.0.0.1:9001';
+const out = document.getElementById('out');
+function add(text){
+  const d=document.createElement('div');
+  d.className='line';
+  d.textContent=text;
+  out.prepend(d);
+  while(out.childNodes.length>1000) out.removeChild(out.lastChild);
+}
+
+function summarizePipes(line) {
+  const p=(line+'|||||||||').split('|');
+  const t=p[0], proto=p[1], src=p[2], tcp_s=p[3], udp_s=p[4],
+        dst=p[5], tcp_d=p[6], udp_d=p[7], len=p[8];
+  const sport=tcp_s||udp_s||'', dport=tcp_d||udp_d||'';
+  const left=src?(src+(sport?':'+sport:'')):'';
+  const right=dst?(dst+(dport?':'+dport:'')):'';
+  return (left||right)
+    ? `${t}  ${left}  →  ${right}  ${proto}  [len=${len}]`
+    : `${t}  ${proto}  [len=${len}]`;
+}
+
+let buf='';
+add(`connecting to ${WS_URL} …`);
+const ws=new WebSocket(WS_URL);
+ws.onopen =()=>add(`✅ connected: ${WS_URL}`);
+ws.onclose=()=>add('🔌 disconnected');
+ws.onerror=(e)=>{add('⚠️ WebSocket error');console.error(e)};
+ws.onmessage=(e)=>{
+  buf+=String(e.data);
+  const lines=buf.split('\n'); buf=lines.pop();
+  for(const line of lines){
+    if(!line) continue;
+    if(line.includes('|')) add(summarizePipes(line));
+    else add(line);
+  }
+};
+</script>
