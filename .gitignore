@@ -1,0 +1,88 @@
+# ---------- OS / editor junk ----------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.env
+.env.*
+
+# ---------- Logs / locks / runtime state ----------
+*.lock
+*.pid
+*.sock
+*.fifo
+*.tmp
+*.log
+
+# Top-level runtime dirs you listed
+run/
+downloads/
+captures/
+
+# If you prefer to keep run/ tracked with .gitkeep, comment the line above
+# and ignore its volatile children instead:
+# run/bundles/
+# run/dumps/
+# run/logs/
+# run/locks/
+# run/web-server/*.json
+# run/web-server/live_hash_loop.txt
+# run/*.txt
+# run/*.json
+# run/*.har
+# run/*.dump
+# run/**/*.har
+# run/**/*.dump
+
+# ---------- Network capture & generated artifacts ----------
+*.pcap
+*.pcapng
+*.har
+*.dump
+*.jsonl
+*.jsonl.zip
+network_stream*.txt
+http_stream_fifo.txt
+network_stream_fifo.txt
+
+# Evidence bundle outputs (restrict to runtime dirs so you can still commit examples elsewhere)
+captures/**/*.pdf
+downloads/**/*.pdf
+run/**/*.pdf
+run/**/*.qdf.pdf
+run/**/*.ots
+run/**/*ots__time-stamp.json
+
+# ---------- Signing keys / certs (very important) ----------
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+*.key
+signature/keys/
+signature/private/
+signature/*.pem
+signature/*.p12
+signature/*.key
+
+# ---------- Web viewer build outputs ----------
+run/web-server/*.json
+run/web-server/live_hash_loop.txt
+run/web-server/overlay_text.txt
+
+# ---------- Shell scripts & line endings handled in .gitattributes ----------
+
+# ---------- Go toolchains / big blobs ----------
+time/roughtime/go*.tar.gz

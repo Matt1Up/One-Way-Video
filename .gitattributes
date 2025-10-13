@@ -1,0 +1,8 @@
+# Normalize line endings
+* text=auto eol=lf
+
+# Keep shell scripts LF
+*.sh text eol=lf
+
+# Mark vendored code so linguist doesn’t skew stats
+time/** linguist-vendored
