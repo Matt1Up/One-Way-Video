@@ -3,6 +3,8 @@
 A reproducible capture stack for browser/network activity and on-screen proof, orchestrated by a single controller. It couples **mitmproxy**, **Firefox (custom profile)**, **OBS Studio (virtual camera + recording control)**, and **local viewers** with a **bundle-hash loop** and dual timestamping (**OpenTimestamps + Roughtime**).
 [![One-Way Video flow](images/One-Way-Video-FLOW_200_border.png)](images/One-Way-Video-FLOW_200_border.png)
 
+[![Watch the demo](images/One-Way-Video-FLOW_200_border.png)](https://matt1up.substack.com/p/one-way-video)
+<p align="center">↑ Click the image to watch a short demo</p>
 
 > **Main entrypoint:** `control-all.py`
 
