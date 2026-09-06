@@ -39,6 +39,10 @@ def load_config(config_rel_path: str = "run/web-server/viewer.config.json") -> D
 # PEM is preferred over PKCS#12 when both are present and the key is unencrypted.
 # Leave these as None and set the env vars instead (see .env.example), or point
 # them at your own key material, e.g. "/path/to/evidence-key.pem".
+#
+# PREFERRED: set EVCAP_KEY_PEM / EVCAP_CERT_PEM (or EVCAP_P12 / EVCAP_P12_PASS) in
+# your git-ignored .env. This file IS tracked by git: do not commit real key paths
+# here. Values below are last-resort local defaults only.
 SIGN_KEY_PEM  = None
 SIGN_CERT_PEM = None
 SIGN_P12      = None
