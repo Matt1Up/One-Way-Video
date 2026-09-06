@@ -27,6 +27,49 @@ def check_system_cmd(name):
     return shutil.which(name) is not None
 
 
+def check_obs_websocket(timeout: float = 3.0) -> None:
+    """Actually connect to OBS's WebSocket server, don't just look for the binary.
+
+    Host/port/password come from OBS_HOST / OBS_PORT / OBS_PASSWORD (same as
+    bin/obs_studio_ctrl.py). Outcomes are WARN, not errors: OBS may simply not
+    be open while you check dependencies.
+    """
+    import socket
+    host = os.environ.get("OBS_HOST", "127.0.0.1")
+    port = int(os.environ.get("OBS_PORT", "4455") or 4455)
+    password = os.environ.get("OBS_PASSWORD", "")
+    label = f"{host}:{port}"
+
+    # 1) is anything listening?
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            pass
+    except OSError as e:
+        print(f"  ws://{label:<24s} {WARN}  (no WebSocket server: OBS not running, or the server is disabled — {e.__class__.__name__})")
+        return
+
+    # 2) can we authenticate and talk to it?
+    try:
+        from obsws_python import ReqClient
+    except ImportError:
+        print(f"  ws://{label:<24s} {WARN}  (port open, but obsws-python is not installed so it cannot be exercised)")
+        return
+    try:
+        ws = ReqClient(host=host, port=port, password=password, timeout=timeout)
+        try:
+            v = ws.get_version()
+            print(f"  ws://{label:<24s} {OK}  (OBS {getattr(v, 'obs_version', '?')}, WebSocket {getattr(v, 'obs_web_socket_version', '?')})")
+        finally:
+            try:
+                ws.disconnect()
+            except Exception:
+                pass
+    except Exception as e:
+        hint = "check OBS_PASSWORD" if "auth" in str(e).lower() or "password" in str(e).lower() else e.__class__.__name__
+        print(f"  ws://{label:<24s} {WARN}  (port open but the handshake failed: {hint})")
+        print("    Set OBS_HOST / OBS_PORT / OBS_PASSWORD to match OBS > Tools > WebSocket Server Settings")
+
+
 def main():
     print("=" * 60)
     print("Evidence-Capture Dependency Checker")
@@ -98,6 +141,10 @@ def main():
         found = check_system_cmd(name)
         status = OK if found else WARN
         print(f"  {name:<30s} {status}  ({desc})")
+
+    # --- OBS WebSocket (the one thing setup.sh cannot configure for you) ---
+    print("\n--- OBS WebSocket (OBS > Tools > WebSocket Server Settings) ---")
+    check_obs_websocket()
 
     # --- Fonts ---
     print("\n--- Fonts ---")
