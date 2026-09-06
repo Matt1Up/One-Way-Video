@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 # --- portable import bootstrap: make repo imports available everywhere ---
 import pathlib as _pathlib
-_REPO_ROOT = _pathlib.Path(__file__).resolve().parents[1]  # repo/
+_REPO_ROOT = _pathlib.Path(__file__).resolve().parents[2]  # bin/time/ -> bin/ -> repo/
 sys.path.insert(0, str(_REPO_ROOT))
 from evidence_capture.paths import RUN  # repo-anchored run/
 
@@ -244,7 +244,7 @@ def save_bundle(server, port, lt_b64, proof: dict, raw: bytes, out=None,
     bundle = {
         "version": 1, "server": server, "port": port,
         "longterm_pubkey_b64": lt_b64,
-        "received_at_utc": datetime.utcnow().isoformat()+"Z",
+        "received_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "proof": proof, "raw_response_hex": raw.hex(),
     }
     artifact = {}

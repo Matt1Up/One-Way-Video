@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>tshark live</title>
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    background: #000; color: #ccc;
+    font: 12px/1.35 "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono", monospace;
+    overflow: hidden;
+  }
+  body { padding: 4px 6px; }
+  #hdr {
+    display: flex; gap: 14px; align-items: baseline;
+    color: #888; padding-bottom: 2px;
+    border-bottom: 1px solid #222; margin-bottom: 3px;
+    white-space: nowrap;
+  }
+  #hdr .lbl { color: #555; }
+  #hdr #state.ok    { color: #6f6; }
+  #hdr #state.bad   { color: #f66; }
+  #hdr #state.wait  { color: #fc6; }
+  #rows { font-variant-numeric: tabular-nums; }
+  .row { display: grid;
+         grid-template-columns: 7.5em 5.5em 1fr 4em;
+         gap: 8px; white-space: nowrap;
+         overflow: hidden; text-overflow: ellipsis; }
+  .row .t   { color: #777; }
+  .row .p   { color: #8cf; }
+  .row .p.tls    { color: #6c9eff; }
+  .row .p.tcp    { color: #79e5b3; }
+  .row .p.udp    { color: #d8b46b; }
+  .row .p.dns    { color: #c08aff; }
+  .row .p.quic   { color: #f08a8a; }
+  .row .p.arp    { color: #666; }
+  .row .p.http   { color: #ffd25e; }
+  .row .p.icmpv4,
+  .row .p.icmpv6 { color: #ff9ed8; }
+  .row .ep  { color: #bbb; }
+  .row .ep .arr { color: #555; padding: 0 4px; }
+  .row .ep .port { color: #888; }
+  .row .l   { color: #888; text-align: right; }
+  .new { animation: pulse 0.4s ease-out; }
+  @keyframes pulse { from { background: #1a2a18; } to { background: transparent; } }
+</style>
+</head>
+<body>
+<div id="hdr">
+  <span><span class="lbl">net</span> <span id="state" class="wait">connecting…</span></span>
+  <span><span class="lbl">msgs</span> <span id="msgs">0</span></span>
+  <span><span class="lbl">rate</span> <span id="rate">0</span>/s</span>
+  <span><span class="lbl">last</span> <span id="last">—</span></span>
+</div>
+<div id="rows"></div>
+
+<script>
+"use strict";
+const URL = "ws://127.0.0.1:9001";
+const MAX_ROWS = 14;
+
+const els = {
+  state: document.getElementById("state"),
+  msgs:  document.getElementById("msgs"),
+  rate:  document.getElementById("rate"),
+  last:  document.getElementById("last"),
+  rows:  document.getElementById("rows"),
+};
+
+let ws = null;
+let total = 0;
+let windowCount = 0;  // for rolling 1s rate
+let lastEpoch = null;
+
+function setState(text, klass) {
+  els.state.textContent = text;
+  els.state.className = klass;
+}
+
+function fmtTime(epoch) {
+  if (!epoch || isNaN(epoch)) return "—";
+  const d = new Date(epoch * 1000);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  const ms = String(d.getMilliseconds()).padStart(3, "0");
+  return `${hh}:${mm}:${ss}.${ms}`;
+}
+
+function protoClass(proto) {
+  const p = proto.toLowerCase();
+  if (p.startsWith("tls"))  return "tls";
+  if (p === "tcp")          return "tcp";
+  if (p === "udp")          return "udp";
+  if (p === "dns" || p === "mdns") return "dns";
+  if (p === "quic")         return "quic";
+  if (p === "arp")          return "arp";
+  if (p === "http" || p === "http/2") return "http";
+  if (p === "icmp")         return "icmpv4";
+  if (p === "icmpv6")       return "icmpv6";
+  return "";
+}
+
+function shortIp(ip) {
+  if (!ip) return "—";
+  // IPv6 is long; truncate to first+last hextet for readability.
+  if (ip.includes(":") && ip.length > 22) {
+    const parts = ip.split(":");
+    return parts[0] + "…" + parts[parts.length - 1];
+  }
+  return ip;
+}
+
+function makeRow(line) {
+  // tshark output: time|proto|ip.src|tcp.srcport|udp.srcport|ip.dst|tcp.dstport|udp.dstport|frame.len
+  const f = line.split("|");
+  const epoch = parseFloat(f[0]);
+  const proto = f[1] || "?";
+  const src   = f[2] || "";
+  const sport = f[3] || f[4] || "";
+  const dst   = f[5] || "";
+  const dport = f[6] || f[7] || "";
+  const flen  = f[8] || "";
+
+  const row = document.createElement("div");
+  row.className = "row new";
+  row.innerHTML =
+    `<span class="t">${fmtTime(epoch)}</span>` +
+    `<span class="p ${protoClass(proto)}">${proto}</span>` +
+    `<span class="ep">${shortIp(src)}` +
+      (sport ? `<span class="port">:${sport}</span>` : "") +
+      `<span class="arr">→</span>` +
+      `${shortIp(dst)}` +
+      (dport ? `<span class="port">:${dport}</span>` : "") +
+    `</span>` +
+    `<span class="l">${flen}</span>`;
+  return { row, epoch };
+}
+
+function pushRow(line) {
+  const { row, epoch } = makeRow(line);
+  els.rows.appendChild(row);
+  while (els.rows.childElementCount > MAX_ROWS) {
+    els.rows.removeChild(els.rows.firstChild);
+  }
+  if (!isNaN(epoch)) lastEpoch = epoch;
+}
+
+setInterval(() => {
+  els.rate.textContent = windowCount;
+  windowCount = 0;
+  els.last.textContent = lastEpoch ? fmtTime(lastEpoch) : "—";
+}, 1000);
+
+function connect() {
+  setState("connecting…", "wait");
+  try {
+    ws = new WebSocket(URL);
+  } catch (e) {
+    setState("error", "bad");
+    setTimeout(connect, 1500);
+    return;
+  }
+  ws.onopen = () => setState("connected " + URL, "ok");
+  ws.onmessage = (ev) => {
+    total++;
+    windowCount++;
+    els.msgs.textContent = total.toLocaleString();
+    // websocat may send multi-line frames; split just in case.
+    const lines = String(ev.data).split("\n");
+    for (const ln of lines) {
+      if (!ln) continue;
+      pushRow(ln);
+    }
+  };
+  ws.onclose = () => {
+    setState("closed, retrying…", "bad");
+    setTimeout(connect, 1000);
+  };
+  ws.onerror = () => { try { ws.close(); } catch (_) {} };
+}
+connect();
+</script>
+</body>
+</html>

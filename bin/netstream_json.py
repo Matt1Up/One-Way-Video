@@ -16,18 +16,23 @@ ENV overrides (optional):
   NET_FIFO_MAX      (default: 5)
 """
 
-import os, sys, shlex, signal, argparse, threading, subprocess, fcntl, time, zipfile, json, tempfile, stat
+import os, sys, shlex, signal, argparse, threading, subprocess, fcntl, time, zipfile, json, stat
 from pathlib import Path
 from datetime import datetime, timezone
 
-# -------- Repo paths (anchor to parent of bin/) --------
-SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT  = SCRIPT_DIR.parent
-RUN_DIR    = REPO_ROOT / "run"
-BIN_DIR    = REPO_ROOT / "bin"
+# -------- Repo paths (via shared module) --------
+# --- portable import bootstrap ---
+_sys_path_added = str(Path(__file__).resolve().parents[1])
+if _sys_path_added not in sys.path:
+    sys.path.insert(0, _sys_path_added)
 
-RUN_DIR.mkdir(parents=True, exist_ok=True)
-BIN_DIR.mkdir(parents=True, exist_ok=True)
+from evidence_capture.paths import RUN, BIN, ensure_runtime_dirs
+from evidence_capture.state import json_update_locked
+from evidence_capture.timeutil import now_utc_iso
+
+ensure_runtime_dirs()
+RUN_DIR = RUN
+BIN_DIR = BIN
 
 # -------- Tshark setup (unchanged) --------
 TSHARK_FIELDS = [
@@ -59,47 +64,20 @@ STATE_JSON.parent.mkdir(parents=True, exist_ok=True)
 STATE_LOCK.parent.mkdir(parents=True, exist_ok=True)
 
 def now_iso():
-    return datetime.now(timezone.utc).isoformat()
-
-def _state_load_locked(lock_fd) -> dict:
-    if not STATE_JSON.exists():
-        return {}
-    try:
-        with STATE_JSON.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-def _state_write_locked(lock_fd, obj: dict) -> None:
-    tmp = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
-                                      dir=str(STATE_JSON.parent), delete=False)
-    try:
-        json.dump(obj or {}, tmp, ensure_ascii=False, separators=(",", ":"))
-        tmp.write("\n")
-        tmp.flush()
-        os.fsync(tmp.fileno())
-        tmp_name = tmp.name
-    finally:
-        tmp.close()
-    os.replace(tmp_name, str(STATE_JSON))
+    return now_utc_iso()
 
 def append_event_to_state_net(event: dict):
     """Prepend one event to streams.net (cap to MAX_STATE_LINES) and bump streams.net_index."""
-    with open(STATE_LOCK, "a+") as lf:
-        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
-        try:
-            st = _state_load_locked(lf)
-            streams = st.get("streams") or {}
-            net_list = streams.get("net") or []
-            idx = int(streams.get("net_index", 0)) + 1
-            event["idx"] = idx
-            new_list = [event] + net_list[: max(0, MAX_STATE_LINES - 1)]
-            streams["net"] = new_list
-            streams["net_index"] = idx
-            st["streams"] = streams
-            _state_write_locked(lf, st)
-        finally:
-            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+    def _update(st):
+        streams = st.get("streams") or {}
+        net_list = streams.get("net") or []
+        idx = int(streams.get("net_index", 0)) + 1
+        event["idx"] = idx
+        streams["net"] = [event] + net_list[: max(0, MAX_STATE_LINES - 1)]
+        streams["net_index"] = idx
+        st["streams"] = streams
+        return st
+    json_update_locked(STATE_JSON, STATE_LOCK, _update)
 
 # -------- Echo file helpers (NDJSON, newest-first) --------
 def json_compact(o: dict) -> str:

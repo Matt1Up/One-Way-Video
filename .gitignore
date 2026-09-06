@@ -4,6 +4,11 @@ Thumbs.db
 *.swp
 *.swo
 
+# ---------- Local tool settings (contain machine-specific paths) ----------
+.claude/
+.vscode/
+.idea/
+
 # ---------- Python ----------
 __pycache__/
 *.py[cod]
@@ -14,8 +19,13 @@ dist/
 build/
 .venv/
 venv/
+.pytest_cache/
+.ruff_cache/
+
+# ---------- Secrets ----------
 .env
 .env.*
+!.env.example
 
 # ---------- Logs / locks / runtime state ----------
 *.lock
@@ -26,33 +36,37 @@ venv/
 *.log
 
 # ---------- Runtime dirs ----------
-run/
-downloads/
-captures/
-
-# Keep placeholders so structure exists
-!captures/.gitkeep
-!downloads/.gitkeep
-!run/.gitkeep
+# Ignore the CONTENTS of run/ ("run/*"), never the directory itself ("run/").
+# Git cannot re-include a file that lives inside an ignored directory, so the
+# old "run/" + "!run/web-server/*.py" pair silently did nothing. Each level
+# below un-ignores the directory, then ignores its contents, then keeps .gitkeep.
+run/*
+!run/bundles/
+run/bundles/*
 !run/bundles/.gitkeep
-!run/dumps/.gitkeep
+!run/dumps/
+run/dumps/*
+!run/dumps/processed/
+run/dumps/processed/*
 !run/dumps/processed/.gitkeep
+!run/logs/
+run/logs/*
 !run/logs/.gitkeep
+!run/locks/
+run/locks/*
 !run/locks/.gitkeep
-!run/web-server/.gitkeep
+!run/web-server/
 
-# Allow web-server SOURCE files to be versioned
-!run/web-server/*.py
-!run/web-server/*.html
-!run/web-server/*.css
-!run/web-server/*.js
-!run/web-server/*.tsv
-!run/web-server/viewer.config.json
-
-# Still ignore web-server generated artifacts
+# web-server: source is versioned; generated artifacts are not
 run/web-server/*.json
+!run/web-server/viewer.config.json
 run/web-server/live_hash_loop.txt
 run/web-server/overlay_text.txt
+
+downloads/*
+!downloads/.gitkeep
+captures/*
+!captures/.gitkeep
 
 # ---------- Network capture & generated artifacts ----------
 *.pcap
@@ -65,7 +79,7 @@ network_stream*.txt
 http_stream_fifo.txt
 network_stream_fifo.txt
 
-# Evidence bundle outputs (restrict to runtime dirs so you can still commit examples elsewhere)
+# Evidence bundle outputs (restricted to runtime dirs so examples/ can still be committed)
 captures/**/*.pdf
 downloads/**/*.pdf
 run/**/*.pdf

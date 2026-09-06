@@ -26,9 +26,10 @@ import os
 import signal
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
+import shutil
 import subprocess
 
 # ========= Repo-anchored defaults (portable) =========
@@ -41,8 +42,35 @@ DEFAULT_OUT_DIR = ROOT / "captures"
 DEFAULT_FILENAME = "mitm_session.dump"
 DEFAULT_PIDFILE = RUN / "mitm_dump.pid"
 DEFAULT_LOGFILE = RUN / "logs" / "mitm_dump.log"
-DEFAULT_MITM = "mitmdump"
-DEFAULT_PORT = 8080
+
+
+def _resolve_mitmdump() -> str:
+    """Find the mitmdump executable, preferring the dedicated venv.
+
+    mitmproxy pins many dependencies, so we install it in ~/.venvs/mitm/
+    (see requirements-mitm.txt). When the controller is launched from a
+    shell that hasn't activated that venv, bare `mitmdump` is not on PATH
+    and start fails with `[Errno 2] No such file or directory: 'mitmdump'`.
+    Fall back to known install paths before giving up.
+    """
+    override = os.environ.get("EVCAP_MITMDUMP")
+    if override:
+        return override
+    candidates = [
+        Path.home() / ".venvs" / "mitm" / "bin" / "mitmdump",
+        Path.home() / ".venvs" / "evidence-capture" / "bin" / "mitmdump",
+    ]
+    for c in candidates:
+        if c.is_file() and os.access(c, os.X_OK):
+            return str(c)
+    on_path = shutil.which("mitmdump")
+    if on_path:
+        return on_path
+    return str(candidates[0])  # let Popen produce the FileNotFoundError
+
+
+DEFAULT_MITM = _resolve_mitmdump()
+DEFAULT_PORT = 18080
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_WAIT_AFTER_SIGINT = 10  # seconds to wait for graceful exit
 
@@ -200,7 +228,7 @@ def start_session(
     # write pidfile/metadata
     info = {
         "pid": proc.pid,
-        "start_time": datetime.utcnow().isoformat() + "Z",
+        "start_time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "dump_path": str(dump_path) if not standby else "",
         "log_path": str(log_path),
         "cmd": cmd,
@@ -229,7 +257,7 @@ def stop_session(pidfile: Path, pid_timeout: int = DEFAULT_WAIT_AFTER_SIGINT) ->
         remove_pidfile(pidfile)
         if dump_path and dump_path.exists():
             ready = dump_path.with_suffix(dump_path.suffix + ".ready")
-            ready.write_text(datetime.utcnow().isoformat() + "Z")
+            ready.write_text(datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
             print(f"Created ready sentinel: {ready}")
         return
 
@@ -254,7 +282,7 @@ def stop_session(pidfile: Path, pid_timeout: int = DEFAULT_WAIT_AFTER_SIGINT) ->
 
     if dump_path and dump_path.exists():
         ready = dump_path.with_suffix(dump_path.suffix + ".ready")
-        ready.write_text(datetime.utcnow().isoformat() + "Z")
+        ready.write_text(datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
         print(f"Created ready sentinel: {ready}")
 
     remove_pidfile(pidfile)

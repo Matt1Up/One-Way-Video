@@ -1,0 +1,10 @@
+# Separate venv for mitmproxy (it pins many dependencies).
+#
+# Setup:
+#   python3 -m venv ~/.venvs/mitm
+#   source ~/.venvs/mitm/bin/activate
+#   pip install -r requirements-mitm.txt
+#
+# Then set:  export EVCAP_MITM_PY=~/.venvs/mitm/bin/python
+
+mitmproxy>=10.0

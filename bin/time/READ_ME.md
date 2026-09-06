@@ -34,3 +34,16 @@ python3 roughtime_client.py query -v \
 
 * If you don’t pass `--bind-file`, you can still use `--json-out` and it will save a timestamped filename.
 * You can still use `--bind-hash <hex>` directly if you already have the SHA-256; `--bind-file` is just convenience around that.
+
+
+## About the Roughtime reference implementation (removed in v2.0)
+
+Earlier versions of this repo vendored a copy of Cloudflare's Go implementation of
+Roughtime under `bin/time/roughtime/`. Nothing here executes it: the client used by
+the capture loop is `roughtime_client.py`, pure Python, with Ed25519 verification
+through the `cryptography` package (PyNaCl as a fallback). The vendored tree was
+removed to keep the repository small and its language statistics honest.
+
+- Upstream: https://github.com/cloudflare/roughtime
+- Snapshot that had been vendored: commit `94d1e9462aa6c3e3bedb2cd36effb20aa286ad55` (2024-12-03)
+- It implements draft-ietf-ntp-roughtime-08 and -11; the Python client speaks the same wire format.

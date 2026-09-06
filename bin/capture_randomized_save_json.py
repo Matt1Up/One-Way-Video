@@ -40,6 +40,7 @@ from io import BytesIO
 
 # ======= PORTABLE PATHS (only change) =======
 from evidence_capture.paths import RUN, BIN, ensure_runtime_dirs
+from evidence_capture.state import state_get as _state_get, state_set as _state_set
 
 # Scripts to trigger (non-blocking), same behavior as before:
 SCRIPT_A = str(BIN / "script_A.py")     # run once (before first capture)
@@ -52,7 +53,6 @@ PNG_DIR     = RUN / "bundles"
 
 # Unified JSON state
 STATE_JSON = RUN / "state.json"
-STATE_LOCK = RUN / "state.lock"
 
 PID_FILE = RUN / "capture.pid"
 
@@ -88,46 +88,12 @@ def parse_region(s: str):
         raise ValueError("Region must contain left,top,width,height")
     return {"left": parts["left"], "top": parts["top"], "width": parts["width"], "height": parts["height"]}
 
-# --- BEGIN: JSON state helpers (unchanged logic; now uses RUN) ---
-import fcntl
-
-def _state_read() -> dict:
-    try:
-        with open(STATE_LOCK, "a+") as lf:
-            fcntl.flock(lf, fcntl.LOCK_SH)
-            try:
-                if not STATE_JSON.exists():
-                    return {}
-                with STATE_JSON.open("r", encoding="utf-8") as f:
-                    return json.load(f)
-            finally:
-                fcntl.flock(lf, fcntl.LOCK_UN)
-    except Exception:
-        return {}
-
-def _state_write(obj: dict) -> None:
-    obj = dict(obj or {})
-    tmp = STATE_JSON.with_suffix(STATE_JSON.suffix + ".tmp")
-    with open(STATE_LOCK, "a+") as lf:
-        fcntl.flock(lf, fcntl.LOCK_EX)
-        try:
-            with tmp.open("w", encoding="utf-8") as f:
-                json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
-                f.write("\n")
-                f.flush(); os.fsync(f.fileno())
-            os.replace(tmp, STATE_JSON)  # atomic on POSIX
-        finally:
-            fcntl.flock(lf, fcntl.LOCK_UN)
-
+# --- JSON state helpers (delegated to evidence_capture.state) ---
 def state_get(key, default=None):
-    return _state_read().get(key, default)
+    return _state_get(key, default)
 
 def state_set(key, value):
-    st = _state_read()
-    st[key] = value
-    _state_write(st)
-    return value
-# --- END: JSON state helpers ---
+    return _state_set(key, value)
 
 def read_last_hash(_path_ignored):
     """Return 'last_hash' from state.json, else 'NO-HASH'."""
@@ -224,25 +190,16 @@ def capture_region_fallback(region, v4l_device=None):
     msg += "     sudo apt install ffmpeg scrot imagemagick grim\n"
     raise RuntimeError(msg)
 
-# ----- Core capture/save logic (robust textsize) -----
+# ----- Core capture/save logic -----
 def _measure_text(draw, text, font):
+    """Measure text dimensions using Pillow's textbbox (Pillow 10+)."""
     try:
-        bbox = draw.textbbox((0,0), text, font=font)
-        tw = bbox[2] - bbox[0]
-        th = bbox[3] - bbox[1]
-        return tw, th
+        bbox = draw.textbbox((0, 0), text, font=font)
+        return bbox[2] - bbox[0], bbox[3] - bbox[1]
     except Exception:
-        pass
-    try:
-        tw, th = draw.textsize(text, font=font)
-        return tw, th
-    except Exception:
-        pass
-    try:
-        tw, th = font.getsize(text)
-        return tw, th
-    except Exception:
-        return (len(text) * (font.size // 2), font.size + 2)
+        # Last-resort estimate if textbbox somehow fails
+        size = getattr(font, "size", 12)
+        return len(text) * (size // 2), size + 2
 
 def _timestamp_fname():
     now = datetime.now(timezone.utc)
@@ -326,31 +283,6 @@ def capture_once(region, scale_min, scale_max, palette_colors, min_out_w, font_p
 
     return out_path, meta
 
-# ----- Daemonization helpers / main loop -----
-def daemonize_and_run(target_func, *args, **kwargs):
-    pid = os.fork()
-    if pid > 0:
-        return pid
-    os.setsid()
-    pid2 = os.fork()
-    if pid2 > 0:
-        os._exit(0)
-    os.umask(0)
-    devnull = open(os.devnull, "wb")
-    os.dup2(devnull.fileno(), sys.stdout.fileno())
-    os.dup2(devnull.fileno(), sys.stderr.fileno())
-    pid = os.getpid()
-    PID_FILE.write_text(str(pid))
-    try:
-        target_func(*args, **kwargs)
-    finally:
-        try:
-            if PID_FILE.exists():
-                PID_FILE.unlink()
-        except Exception:
-            pass
-    os._exit(0)
-
 def _trigger_script_nonblocking(script_path):
     """Launch a python script with the same interpreter without blocking.
     Returns subprocess.Popen object or None if skipped."""
@@ -419,7 +351,7 @@ def run_loop(region, interval, capture_offset, scale_min, scale_max, palette_col
                 print("capture: error during capture:", e, file=sys.stderr)
 
             # log capture event
-            t = datetime.utcnow().isoformat() + "Z"
+            t = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             try:
                 open(CAPTURE_LOG, "a").write(f"{t}\t{step}\t{path.name}\t{meta.get('out_w')}x{meta.get('out_h')}\n")
             except Exception as e:
@@ -443,6 +375,11 @@ def run_loop(region, interval, capture_offset, scale_min, scale_max, palette_col
         print("capture: exiting loop")
 
 def start_daemon(args):
+    """Launch the capture loop as a background subprocess (not a fork-daemon).
+
+    Logs go to run/logs/capture.out and capture.err so you can debug issues.
+    The PID is recorded in run/capture.pid for stop_daemon().
+    """
     if PID_FILE.exists():
         try:
             pid = int(PID_FILE.read_text().strip())
@@ -451,22 +388,49 @@ def start_daemon(args):
             return
         except Exception:
             PID_FILE.unlink()
-    pid = os.fork()
-    if pid > 0:
-        _, _ = os.waitpid(pid, 0)
-        print("capture: started (check pid file at", PID_FILE, ")")
-        return
-    def target():
-        import threading
-        stop_evt = threading.Event()
-        def onterm(signum, frame):
-            stop_evt.set()
-        signal.signal(signal.SIGTERM, onterm)
-        run_loop(args.region, args.interval, args.capture_offset, args.scale_min, args.scale_max,
-                 args.palette_colors, args.min_out_w, args.font, args.font_size,
-                 args.last_hash_file, args.out, stop_evt, v4l_device=args.v4l_device,
-                 fixed_scale=args.fixed_scale, write_meta=not args.no_meta, use_counter=not args.no_counter, do_overlay=not args.no_overlay)
-    daemonize_and_run(target)
+
+    # Re-invoke ourselves with "run" in a background process group
+    log_dir = RUN / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    stdout_f = open(log_dir / "capture.out", "ab")
+    stderr_f = open(log_dir / "capture.err", "ab")
+
+    cmd = [sys.executable, __file__, "run",
+           "--interval", str(args.interval),
+           "--capture-offset", str(args.capture_offset),
+           "--region", f"left={args.region['left']},top={args.region['top']},width={args.region['width']},height={args.region['height']}",
+           "--out", str(args.out),
+           "--scale-min", str(args.scale_min),
+           "--scale-max", str(args.scale_max),
+           "--palette-colors", str(args.palette_colors),
+           "--min-out-w", str(args.min_out_w),
+           "--font", str(args.font),
+           "--font-size", str(args.font_size),
+           "--last-hash-file", str(args.last_hash_file)]
+    if args.v4l_device:
+        cmd += ["--v4l-device", str(args.v4l_device)]
+    if args.fixed_scale:
+        cmd.append("--fixed-scale")
+    if getattr(args, "reset_counter", False):
+        cmd.append("--reset-counter")
+    if args.no_meta:
+        cmd.append("--no-meta")
+    if args.no_overlay:
+        cmd.append("--no-overlay")
+    if getattr(args, "no_counter", False):
+        cmd.append("--no-counter")
+
+    proc = subprocess.Popen(
+        cmd,
+        stdout=stdout_f,
+        stderr=stderr_f,
+        stdin=subprocess.DEVNULL,
+        close_fds=True,
+        preexec_fn=os.setpgrp,  # new process group so stop_daemon can killpg
+    )
+    PID_FILE.write_text(str(proc.pid))
+    print(f"capture: started background (pid {proc.pid})")
+    print(f"capture: logs -> {log_dir / 'capture.out'}")
 
 # --- stop_daemon() (unchanged behavior) ---
 def stop_daemon():
@@ -530,14 +494,24 @@ def stop_daemon():
 def run_foreground(args):
     import threading
     stop_evt = threading.Event()
+
+    # Write PID so stop_daemon() can find us
+    PID_FILE.write_text(str(os.getpid()))
+
     def onint(signum, frame):
         stop_evt.set()
     signal.signal(signal.SIGINT, onint)
     signal.signal(signal.SIGTERM, onint)
-    run_loop(args.region, args.interval, args.capture_offset, args.scale_min, args.scale_max,
-             args.palette_colors, args.min_out_w, args.font, args.font_size,
-             args.last_hash_file, args.out, stop_evt, v4l_device=args.v4l_device,
-             fixed_scale=args.fixed_scale, write_meta=not args.no_meta, use_counter=not args.no_counter, do_overlay=not args.no_overlay)
+    try:
+        run_loop(args.region, args.interval, args.capture_offset, args.scale_min, args.scale_max,
+                 args.palette_colors, args.min_out_w, args.font, args.font_size,
+                 args.last_hash_file, args.out, stop_evt, v4l_device=args.v4l_device,
+                 fixed_scale=args.fixed_scale, write_meta=not args.no_meta, use_counter=not args.no_counter, do_overlay=not args.no_overlay)
+    finally:
+        try:
+            PID_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 def main():
     p = argparse.ArgumentParser(description="Randomized capture -> paletted PNG saver (v4l2/ffmpeg support)")

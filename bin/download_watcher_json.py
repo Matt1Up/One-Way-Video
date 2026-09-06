@@ -33,11 +33,22 @@ except Exception:
 
 # ---------- Paths (portable via evidence_capture) ----------
 from evidence_capture.paths import (
-    ROOT, BIN, RUN, ensure_runtime_dirs
+    ROOT, BIN, RUN, PY, ensure_runtime_dirs
+)
+from evidence_capture.timeutil import ts_local_ns, now_utc_iso
+from evidence_capture.hashing import sha256_file as sha256_stream
+from evidence_capture.state import (
+    Flock, json_read_locked, json_write_locked, json_update_locked,
+    state_read, state_write, state_set_with_time, state_inc_file_count,
+    STATE_JSON, STATE_LOCK,
+)
+from evidence_capture.process import make_logger, run_cmd as _run_cmd
+from evidence_capture.evidence import (
+    roughtime_bind as _roughtime_bind, ots_stamp as _ots_stamp,
 )
 
 # Top-level repo dirs you already have
-TIME_DIR    = ROOT / "time"
+TIME_DIR    = BIN / "time"
 DOWNLOADS   = ROOT / "downloads"
 
 # Derived paths (same structure as your original)
@@ -45,24 +56,14 @@ PROOFS_DIR  = DOWNLOADS / ".proofs"
 PROCESSED   = DOWNLOADS / "processed"
 META_DIR    = PROCESSED / "file-meta"
 
-STATE_JSON  = RUN / "state.json"
-STATE_LOCK  = RUN / "state.lock"
 LEDGER_JSON = RUN / "downloaded_files.json"
 LEDGER_LOCK = RUN / "downloaded_files.lock"
 
 LOG_DIR     = RUN / "logs"
 LOG_PATH    = LOG_DIR / "download_watcher.log"
 
-# Use your active interpreter unless EVCAP_PY is set
-PY = Path(os.environ.get("EVCAP_PY", _sys.executable))
-
 DEBUG = False
 CREATED_VAULTS: set[str] = set()  # vaults created in THIS run
-
-# Roughtime config (unchanged)
-RT_SERVER = "roughtime.cloudflare.com"
-RT_PORT   = "2003"
-RT_PUBKEY = "0GD7c3yP8xEc4Zl2zeuN2SlLvDVVocjsPSL8/Rl/7zg="
 
 # Tuning (unchanged)
 POLL_SECS        = 0.5
@@ -71,144 +72,23 @@ MAX_FILE_BYTES   = 50 * 1024 * 1024 * 1024
 RECENT_MAX       = 5
 OTS_DISCOVERY_WAIT_SECS = 8.0
 
-# ---------- Logging ----------
-def ts_local_ns() -> str:
-    ns = time.time_ns()
-    sec, rem = divmod(ns, 1_000_000_000)
-    dt = datetime.fromtimestamp(sec, tz=datetime.now().astimezone().tzinfo)
-    return dt.strftime("%Y-%m-%d %H:%M:%S") + f".{rem:09d} {dt.tzname() or ''}"
-
-def now_utc_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-def _ensure_logdir():
-    try:
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-
-def log(msg: str):
-    """Log to stdout AND logfile."""
-    line = f"[{ts_local_ns()}] {msg}"
-    print(line, flush=True)
-    _ensure_logdir()
-    try:
-        with LOG_PATH.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except Exception:
-        pass
+# ---------- Logging (via shared module) ----------
+log = make_logger(log_file=LOG_PATH)
 
 def log_exception(prefix: str, ex: Exception):
     log(f"{prefix}: {type(ex).__name__}: {ex}")
 
 def run_cmd(args, check=True, capture=True, cwd=None, label: str = ""):
-    """Run a subprocess with full logging of args/stdout/stderr/exit."""
-    log(f"RUN{(' ['+label+']') if label else ''}: {' '.join(map(str, args))}")
-    p = subprocess.run(
-        args, check=False, cwd=str(cwd) if cwd else None,
-        text=True,
-        stdout=subprocess.PIPE if capture else None,
-        stderr=subprocess.PIPE if capture else None,
-    )
-    if capture:
-        if p.stdout:
-            log(f"STDOUT{(' ['+label+']') if label else ''}: {p.stdout.strip()}")
-        if p.stderr:
-            log(f"STDERR{(' ['+label+']') if label else ''}: {p.stderr.strip()}")
-    log(f"EXIT{(' ['+label+']') if label else ''}: {p.returncode}")
-    if check and p.returncode != 0:
-        raise subprocess.CalledProcessError(p.returncode, args, p.stdout, p.stderr)
+    """Run a subprocess with full logging. Returns (returncode, stdout, stderr)."""
+    p = _run_cmd(args, check=check, capture=capture, cwd=cwd, label=label or None, log_fn=log)
     return p.returncode, (p.stdout or ""), (p.stderr or "")
 
-# ---------- Locked JSON I/O ----------
-class Flock:
-    def __init__(self, lock_path: Path):
-        self.lock_path = lock_path
-        self.fd = None
-    def __enter__(self):
-        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-        self.fd = os.open(self.lock_path, os.O_CREAT | os.O_RDWR, 0o644)
-        fcntl.flock(self.fd, fcntl.LOCK_EX)
-        return self
-    def __exit__(self, *args):
-        try:
-            fcntl.flock(self.fd, fcntl.LOCK_UN)
-        finally:
-            os.close(self.fd); self.fd = None
-
-def _json_load_locked(lock_path: Path, json_path: Path) -> dict:
-    if not json_path.exists():
-        return {}
-    try:
-        with json_path.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as ex:
-        log_exception(f"JSON load failed for {json_path}", ex)
-        return {}
-
-def _json_write_locked(lock_path: Path, json_path: Path, obj: dict) -> None:
-    tmp = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
-                                      dir=str(json_path.parent), delete=False)
-    try:
-        json.dump(obj or {}, tmp, ensure_ascii=False, separators=(",", ":"))
-        tmp.write("\n")
-        tmp.flush(); os.fsync(tmp.fileno())
-        name = tmp.name
-    finally:
-        tmp.close()
-    os.replace(name, str(json_path))
-
-def state_read() -> dict:
-    with Flock(STATE_LOCK):
-        return _json_load_locked(STATE_LOCK, STATE_JSON)
-
-def state_write(obj: dict) -> None:
-    with Flock(STATE_LOCK):
-        _json_write_locked(STATE_LOCK, STATE_JSON, obj)
-    log("STATE WRITE: updated state.json")
-
-def state_set_with_time(key: str, value, sys_time: Optional[str] = None):
-    """Atomic key update: reads, sets key + <key>_sys_time, writes under lock."""
-    if sys_time is None:
-        sys_time = ts_local_ns()
-    with Flock(STATE_LOCK):
-        st = _json_load_locked(STATE_LOCK, STATE_JSON)
-        st[key] = value
-        st[f"{key}_sys_time"] = sys_time
-        _json_write_locked(STATE_LOCK, STATE_JSON, st)
-    log(f"STATE SET: {key}={('[...]' if isinstance(value, (list, dict)) else value)} @ {sys_time}")
-    return value, sys_time
-
-def state_inc_file_count(sys_time: Optional[str] = None) -> int:
-    """Atomic increment of file_count under lock; returns the NEW value."""
-    if sys_time is None:
-        sys_time = ts_local_ns()
-    with Flock(STATE_LOCK):
-        st = _json_load_locked(STATE_LOCK, STATE_JSON)
-        cur = int(st.get("file_count", 0) or 0)
-        new = cur + 1
-        st["file_count"] = new
-        st["file_count_sys_time"] = sys_time
-        _json_write_locked(STATE_LOCK, STATE_JSON, st)
-    log(f"STATE INC: file_count {cur} -> {new} @ {sys_time}")
-    return new
-
 def ledger_read() -> dict:
-    with Flock(LEDGER_LOCK):
-        return _json_load_locked(LEDGER_LOCK, LEDGER_JSON)
+    return json_read_locked(LEDGER_JSON, LEDGER_LOCK)
 
 def ledger_write(obj: dict) -> None:
-    with Flock(LEDGER_LOCK):
-        _json_write_locked(LEDGER_LOCK, LEDGER_JSON, obj)
+    json_write_locked(LEDGER_JSON, LEDGER_LOCK, obj)
     log(f"LEDGER WRITE: {LEDGER_JSON}")
-
-# ---------- exiftool / pdfsig ----------
-def sha256_stream(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 def exiftool_json(path: Path) -> Optional[List[dict]]:
     rc, out, err = run_cmd(["exiftool", "-json", "-a", "-G", str(path)],
@@ -280,91 +160,16 @@ def pdfsig_structured(path: Path) -> Optional[dict]:
     if cur: sigs.append(cur)
     return {"file": path.name, "signatures": sigs}
 
-# ---------- Roughtime / OTS ----------
+# ---------- Roughtime / OTS (delegated to shared evidence module) ----------
 def roughtime_bind(target: Path, json_out_dir: Path) -> Optional[Path]:
     log(f"ROUGHTIME bind start: target={target} out_dir={json_out_dir}")
-    json_out_dir.mkdir(parents=True, exist_ok=True)
-    run_cmd([
-        str(PY), str(TIME_DIR / "roughtime_client.py"), "query", "-v",
-        "--server", RT_SERVER, "--port", RT_PORT,
-        "--pubkey-base64", RT_PUBKEY,
-        "--reveal-hash",
-        "--bind-file", str(target),
-        "--last-time", str(RUN / "last_roughtime.txt"),
-        "--json-out", str(json_out_dir),
-    ], check=True, capture=True, label=f"roughtime {target.name}")
-    newest = None
-    for p in json_out_dir.glob("*.json"):
-        if newest is None or p.stat().st_mtime > newest.stat().st_mtime:
-            newest = p
-    log(f"ROUGHTIME bind done: newest={newest}")
-    return newest
+    result = _roughtime_bind(target, json_out_dir, log_fn=log)
+    log(f"ROUGHTIME bind done: newest={result}")
+    return result
 
 def ots_stamp(target: Path, out_dir: Path, wait_if_exists: float = OTS_DISCOVERY_WAIT_SECS) -> Path:
-    """Idempotent OTS: reuse/normalize existing, tolerate 'File exists' + wait briefly for late file."""
     log(f"OTS stamp start: target={target} out_dir={out_dir}")
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    cand_same  = target.parent / f"{target.name}.ots"
-    cand_same2 = target.parent / (target.stem + ".ots")
-    cand_out   = out_dir / f"{target.name}.ots"
-    cand_out2  = out_dir / (target.stem + ".ots")
-
-    # 0) Reuse if present anywhere
-    for c in (cand_out, cand_out2, cand_same, cand_same2):
-        if c.exists():
-            log(f"OTS exists already: {c}")
-            if c.parent != out_dir:
-                try:
-                    dest = out_dir / c.name
-                    if dest.exists():
-                        log(f"OTS normalize skipped (dest exists): {dest}")
-                        return dest
-                    c.replace(dest)
-                    log(f"OTS normalized: {dest}")
-                    return dest
-                except Exception as ex:
-                    log_exception("OTS normalize failed; using original", ex)
-                    return c
-            return c
-
-    # 1) Try stamping
-    try:
-        run_cmd([str(PY), str(BIN / "get_ots_stamp.py"), str(target), str(out_dir)],
-                check=True, capture=True, label=f"ots {target.name}")
-    except subprocess.CalledProcessError as e:
-        msg = (e.stderr or "") + "\n" + (e.stdout or "")
-        if "File exists" in msg:
-            log("OTS: 'File exists' reported; trying discovery.")
-        elif "need at least 2 attestations" in msg:
-            log("OTS: Pool attestation timeout; trying discovery window.")
-        else:
-            log("OTS: non-benign error; will still attempt discovery before failing.")
-
-    # 2) Discover/normalize; wait a bit in case the file appears late
-    deadline = time.time() + max(0.0, wait_if_exists)
-    while True:
-        for c in (cand_out, cand_out2, cand_same, cand_same2):
-            if c.exists():
-                log(f"OTS discovered: {c}")
-                if c.parent != out_dir:
-                    try:
-                        dest = out_dir / c.name
-                        if dest.exists():
-                            log(f"OTS normalize skipped (dest exists): {dest}")
-                            return dest
-                        c.replace(dest)
-                        log(f"OTS normalized (late): {dest}")
-                        return dest
-                    except Exception as ex:
-                        log_exception("OTS normalize (late) failed; using original", ex)
-                        return c
-                return c
-        if time.time() >= deadline:
-            break
-        time.sleep(0.25)
-
-    raise RuntimeError(f"OTS not created for {target}")
+    return _ots_stamp(target, out_dir, wait_if_exists=wait_if_exists, log_fn=log)
 
 # ---------- One-page info PDF ----------
 def make_info_pdf(out_pdf: Path, info: dict) -> None:
@@ -675,13 +480,14 @@ def clear_downloads(downloads: Path):
             log_exception(f"CLR remove failed for {p}", ex)
     # reset ledger + file_count, and CLEAR files_recent
     ledger_write({"session_name": state_read().get("session_name", ""), "created_at": now_utc_iso(), "items": []})
-    with Flock(STATE_LOCK):
-        st = _json_load_locked(STATE_LOCK, STATE_JSON)
+    now = ts_local_ns()
+    def _reset(st):
         st["file_count"] = 0
-        st["file_count_sys_time"] = ts_local_ns()
+        st["file_count_sys_time"] = now
         st["files_recent"] = []
-        st["files_recent_sys_time"] = ts_local_ns()
-        _json_write_locked(STATE_LOCK, STATE_JSON, st)
+        st["files_recent_sys_time"] = now
+        return st
+    json_update_locked(STATE_JSON, STATE_LOCK, _reset)
     log("CLEAR complete; ledger cleared; file_count=0; files_recent cleared.")
 
 # ---------- Main ----------

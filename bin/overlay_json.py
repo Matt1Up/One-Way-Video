@@ -15,11 +15,12 @@ _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[1]))
 # ----------------------------------------------------------------------
 
 from pathlib import Path
-import sys, argparse, time, json, fcntl, re, os
+import sys, argparse, time, json, re, os
 from PyQt5 import QtWidgets, QtCore, QtGui
 
 # Repo-anchored paths
 from evidence_capture.paths import RUN, ensure_runtime_dirs
+from evidence_capture.state import json_read_locked
 ensure_runtime_dirs()
 
 # ---------- color utils (unchanged from your overlay.py) ----------
@@ -62,22 +63,9 @@ def rgb_to_css_rgba(r,g,b,a):
 
 # ---------- robust JSON read with shared lock ----------
 def read_state_json(json_path: Path, lock_path: Path, key: str) -> str:
-    """
-    Safely read `key` from state.json using a shared lock on state.lock.
-    Returns '' if missing or on error.
-    """
+    """Safely read *key* from state.json using a shared lock. Returns '' on error."""
     try:
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDONLY, 0o644)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_SH)
-            try:
-                with json_path.open("r", encoding="utf-8") as f:
-                    obj = json.load(f)
-            finally:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-        finally:
-            os.close(fd)
+        obj = json_read_locked(json_path, lock_path)
         val = obj.get(key, "")
         return str(val) if val is not None else ""
     except Exception:

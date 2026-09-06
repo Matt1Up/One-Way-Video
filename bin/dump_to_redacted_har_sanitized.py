@@ -147,12 +147,18 @@ def redact_json_obj(obj: Any, redact_keys: set) -> Any:
         return redact_heuristic_text(obj)
     return obj
 
-def sanitize_body(content_bytes: Optional[bytes], content_type: str, redact_keys: set) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+def sanitize_body(content_bytes: Optional[bytes], content_type: str, redact_keys: set, no_body_sanitize: bool = False) -> Tuple[Optional[str], Optional[str], Optional[int]]:
     """
     Return: (text_or_b64, encoding_flag_or_none, length)
     - If content_type implies text or JSON, return sanitized UTF-8 text.
     - If binary, return base64-encoded string and encoding='base64'.
     - Also returns the raw byte length.
+
+    When no_body_sanitize=True, text bodies are returned verbatim (no PHONE/
+    EMAIL/BASE64 substitution, no JSON-key redaction). Used for evidence
+    capture, where the submitted form values ARE the artifact. Binary bodies
+    are still base64-encoded the same way (that's an encoding, not redaction),
+    and header/query-string redactors run independently.
     """
     if content_bytes is None:
         return None, None, None
@@ -174,15 +180,18 @@ def sanitize_body(content_bytes: Optional[bytes], content_type: str, redact_keys
     if is_json and text is not None:
         try:
             obj = json.loads(text)
-            redacted_obj = redact_json_obj(obj, redact_keys)
-            out_text = json.dumps(redacted_obj, ensure_ascii=False)
-            out_text = redact_heuristic_text(out_text)
+            if no_body_sanitize:
+                out_text = json.dumps(obj, ensure_ascii=False)
+            else:
+                redacted_obj = redact_json_obj(obj, redact_keys)
+                out_text = json.dumps(redacted_obj, ensure_ascii=False)
+                out_text = redact_heuristic_text(out_text)
             return out_text, None, length
         except Exception:
             pass
 
     if (is_text or text is not None) and text is not None:
-        out_text = redact_heuristic_text(text)
+        out_text = text if no_body_sanitize else redact_heuristic_text(text)
         return out_text, None, length
 
     try:
@@ -238,7 +247,7 @@ def sanitize_har_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 # -------------------------
 # Flow -> HAR entry + event
 # -------------------------
-def make_har_entry_and_event(flow: Any, keep_bodies_hash: bool = False, include_bodies: bool = False) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def make_har_entry_and_event(flow: Any, keep_bodies_hash: bool = False, include_bodies: bool = False, no_body_sanitize: bool = False) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     fid = try_getattr(flow, "id", "flow_id") or ""
 
     started = try_getattr(flow, "timestamp_start", "start_time")
@@ -318,7 +327,7 @@ def make_har_entry_and_event(flow: Any, keep_bodies_hash: bool = False, include_
                 except Exception:
                     ctype = ""
             if include_bodies:
-                sanitized_text, encoding_flag, length = sanitize_body(raw_bytes, ctype or "", DEFAULT_SENSITIVE_QS)
+                sanitized_text, encoding_flag, length = sanitize_body(raw_bytes, ctype or "", DEFAULT_SENSITIVE_QS, no_body_sanitize=no_body_sanitize)
                 req_body_len = length if length is not None else -1
                 pd = {"mimeType": ctype or "", "text": sanitized_text}
                 if encoding_flag:
@@ -373,7 +382,7 @@ def make_har_entry_and_event(flow: Any, keep_bodies_hash: bool = False, include_
                 except Exception:
                     ctype = ""
             if include_bodies:
-                sanitized_text, encoding_flag, length = sanitize_body(raw_bytes, ctype or "", DEFAULT_SENSITIVE_QS)
+                sanitized_text, encoding_flag, length = sanitize_body(raw_bytes, ctype or "", DEFAULT_SENSITIVE_QS, no_body_sanitize=no_body_sanitize)
                 resp_body_len = length if length is not None else -1
                 content_obj = {"size": resp_body_len or 0, "mimeType": ctype or "", "text": sanitized_text}
                 if encoding_flag:
@@ -491,7 +500,7 @@ def make_har_entry_and_event(flow: Any, keep_bodies_hash: bool = False, include_
 # -------------------------
 # Conversion driver
 # -------------------------
-def convert_dump_to_redacted_har(dump_path: str, out_dir: str, keep_bodies_hash: bool, include_bodies: bool) -> Tuple[str, str, str]:
+def convert_dump_to_redacted_har(dump_path: str, out_dir: str, keep_bodies_hash: bool, include_bodies: bool, no_body_sanitize: bool = False) -> Tuple[str, str, str]:
     os.makedirs(out_dir, exist_ok=True)
     dump_path_abs = os.path.abspath(dump_path)
     base = os.path.splitext(os.path.basename(dump_path_abs))[0]
@@ -512,7 +521,7 @@ def convert_dump_to_redacted_har(dump_path: str, out_dir: str, keep_bodies_hash:
         fr = FlowReader(fh)
         for flow in fr.stream():
             try:
-                ent, ev = make_har_entry_and_event(flow, keep_bodies_hash=keep_bodies_hash, include_bodies=include_bodies)
+                ent, ev = make_har_entry_and_event(flow, keep_bodies_hash=keep_bodies_hash, include_bodies=include_bodies, no_body_sanitize=no_body_sanitize)
                 entries.append(ent)
                 events.append(ev)
                 count += 1
@@ -550,7 +559,7 @@ def convert_dump_to_redacted_har(dump_path: str, out_dir: str, keep_bodies_hash:
         "redacted_har_gz_sha256": redacted_sha,
         "events_filename": os.path.basename(events_path),
         "flow_count": count,
-        "flags": {"keep_bodies_hash": keep_bodies_hash, "include_bodies": include_bodies},
+        "flags": {"keep_bodies_hash": keep_bodies_hash, "include_bodies": include_bodies, "no_body_sanitize": no_body_sanitize},
         "tool": {"name": "mitmproxy-redactor-sanitized", "version": getattr(mitm_version, "short", str(mitm_version) if mitm_version else "unknown")}
     }
     meta_path = os.path.join(out_dir, meta_name)
@@ -577,9 +586,13 @@ def main(argv):
                     help="Compute SHA256 of request/response bodies and include them")
     ap.add_argument("--include-bodies", dest="include_bodies", action="store_true",
                     help="Include sanitized request/response bodies in the HAR")
+    ap.add_argument("--no-body-sanitize", dest="no_body_sanitize", action="store_true",
+                    help="Skip PHONE/EMAIL/JWT/BASE64 substitution AND JSON-key redaction on request/response bodies. "
+                         "Headers and query strings are still redacted. Use this for evidence capture where the "
+                         "submitted form values themselves are the artifact. No-op without --include-bodies.")
     args = ap.parse_args(argv)
 
-    convert_dump_to_redacted_har(args.infile, args.outdir, args.keep_bodies_hash, args.include_bodies)
+    convert_dump_to_redacted_har(args.infile, args.outdir, args.keep_bodies_hash, args.include_bodies, no_body_sanitize=args.no_body_sanitize)
 
 if __name__ == "__main__":
     main(sys.argv[1:])

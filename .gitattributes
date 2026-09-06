@@ -3,6 +3,3 @@
 
 # Keep shell scripts LF
 *.sh text eol=lf
-
-# Mark vendored code so linguist doesn’t skew stats
-time/** linguist-vendored

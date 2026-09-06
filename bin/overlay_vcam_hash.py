@@ -13,30 +13,18 @@ import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 # ----------------------------------------------------------------------
 
-import argparse, json, os, time, fcntl, signal, subprocess
+import argparse, json, os, time, signal, subprocess
 from pathlib import Path
 
 # ---------- Portable paths ----------
 from evidence_capture.paths import RUN, ensure_runtime_dirs
-
-STATE_JSON = RUN / "state.json"
-STATE_LOCK = RUN / "state.lock"
+from evidence_capture.state import state_get
 
 def state_read_last_hash(key: str = "last_hash") -> str:
-    """Read a value from state.json under a shared lock; return '' if missing."""
+    """Read a value from state.json; return '' if missing."""
     try:
-        STATE_LOCK.parent.mkdir(parents=True, exist_ok=True)
-        with open(STATE_LOCK, "a+") as lf:
-            fcntl.flock(lf.fileno(), fcntl.LOCK_SH)
-            try:
-                if not STATE_JSON.exists():
-                    return ""
-                with STATE_JSON.open("r", encoding="utf-8") as f:
-                    st = json.load(f)
-                val = st.get(key) or ""
-                return val if isinstance(val, str) else str(val)
-            finally:
-                fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+        val = state_get(key, "")
+        return val if isinstance(val, str) else str(val or "")
     except Exception:
         return ""
 

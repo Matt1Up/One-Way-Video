@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# OPTIONAL ALTERNATE OVERLAY (GStreamer/PipeWire backend). Not launched by
+# control_all.py; the default overlay path is overlay_vcam_hash.py (v4l2/PyQt5).
+# Requires the system PyGObject packages (python3-gi, gir1.2-gstreamer-1.0), which
+# are available to the venv because setup.sh creates it with --system-site-packages.
 """
 overlay_pw_hash.py — PipeWire RGBA overlay that renders last_hash (from run/state.json) with transparency.
 
@@ -112,7 +116,7 @@ def main():
     last_text = state_read_key(args.key) or args.placeholder
     tov.set_property('text', last_text)
 
-    # Periodic updates (same cadence as your old overlay)
+    # Periodic updates (same cadence as the vcam overlay)
     def tick():
         nonlocal last_text
         t = state_read_key(args.key) or args.placeholder

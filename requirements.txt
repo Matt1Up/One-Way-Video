@@ -1,0 +1,24 @@
+# Evidence-Capture Session Controller — Python dependencies
+#
+# Install:  pip install -r requirements.txt
+#
+# NOTE: mitmproxy runs in its own venv (see requirements-mitm.txt)
+#       because it pins specific dependency versions that conflict.
+
+# --- Core (required for all sessions) ---
+Pillow>=10.0
+PyMuPDF>=1.23
+cryptography>=41.0
+endesive>=2.0
+
+# --- OBS control ---
+obsws-python>=1.6
+
+# --- Overlay window (hash display for OBS capture) ---
+PyQt5>=5.15
+
+# --- Screen capture (optional: v4l2/ffmpeg is the primary backend) ---
+mss>=9.0
+
+# --- OpenTimestamps ---
+opentimestamps-client>=0.7

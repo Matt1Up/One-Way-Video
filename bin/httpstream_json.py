@@ -18,32 +18,60 @@ _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[1]))
 # ----------------------------------------------------------------------
 
 from mitmproxy import ctx, http
-import os, json, fcntl, tempfile, hashlib, math
+import os, json, hashlib, math
 from pathlib import Path
 from datetime import datetime, timezone
 
 # ---------- Repo-anchored defaults (overridable via env) ----------
 from evidence_capture.paths import RUN
+from evidence_capture.state import json_update_locked
+from evidence_capture.timeutil import now_utc_iso
 
 STATE_JSON = Path(os.path.expanduser(os.environ.get("STATE_JSON_FILE", str(RUN / "state.json"))))
 STATE_LOCK = Path(os.path.expanduser(os.environ.get("STATE_LOCK_FILE", str(RUN / "state.lock"))))
 MAX_COMPACT   = int(os.environ.get("HTTP_FIFO_MAX", "5"))
-MAX_DETAILED  = int(os.environ.get("HTTP_EVENTS_MAX", "20"))
-BODY_HASH_MB  = float(os.environ.get("HTTP_BODY_HASH_MAX_MB", "8"))  # 0 = hash all bodies
+MAX_DETAILED  = int(os.environ.get("HTTP_EVENTS_MAX", "2000"))
+BODY_HASH_MB  = float(os.environ.get("HTTP_BODY_HASH_MAX_MB", "0"))  # 0 = hash all bodies (provenance: no cap)
+
+# When the request/response is a form-style submission, also embed the body
+# text directly into the http_events record so it is anchored to the hash-
+# locked bundle chain (not just its sha256). Gated by content-type and size
+# so we never pour binary blobs or huge JSON dumps into state.json.
+FORM_BODY_CONTENT_TYPES = (
+    "application/x-www-form-urlencoded",
+    "multipart/form-data",
+    "application/json",          # most non-MCRO form engines (HubSpot, etc.)
+    "application/csp-report",    # excluded below by host filter
+)
+FORM_BODY_MAX_BYTES = int(os.environ.get("HTTP_FORM_BODY_MAX_BYTES", "10485760"))  # 10 MB
 
 STATE_JSON.parent.mkdir(parents=True, exist_ok=True)
 STATE_LOCK.parent.mkdir(parents=True, exist_ok=True)
 
 # ---------- Time & hashing helpers ----------
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return now_utc_iso()
 
 def _sha256_or_none(raw: bytes | None):
     if raw is None:
         return None
     if BODY_HASH_MB > 0 and len(raw) > BODY_HASH_MB * 1024 * 1024:
-        return None  # large; final HAR will carry the body for forensics
+        return None
     return hashlib.sha256(raw).hexdigest()
+
+def _maybe_body_text(raw: bytes | None, content_type: str | None) -> str | None:
+    """Return decoded body text iff content-type is form-like and size is sane."""
+    if not raw:
+        return None
+    ct = (content_type or "").lower()
+    if not any(s in ct for s in FORM_BODY_CONTENT_TYPES):
+        return None
+    if FORM_BODY_MAX_BYTES > 0 and len(raw) > FORM_BODY_MAX_BYTES:
+        return None
+    try:
+        return raw.decode("utf-8", errors="replace")
+    except Exception:
+        return None
 
 def _ts_from_float(f: float | None):
     if f is None or (isinstance(f, float) and (math.isnan(f) or math.isinf(f))):
@@ -53,62 +81,32 @@ def _ts_from_float(f: float | None):
     except Exception:
         return None
 
-# ---------- state.json I/O (flock + atomic replace) ----------
-def _state_load_locked(_lf) -> dict:
-    if not STATE_JSON.exists():
-        return {}
-    try:
-        with STATE_JSON.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-def _state_write_locked(_lf, obj: dict) -> None:
-    tmp = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
-                                      dir=str(STATE_JSON.parent), delete=False)
-    try:
-        json.dump(obj or {}, tmp, ensure_ascii=False, separators=(",", ":"))
-        tmp.write("\n")
-        tmp.flush()
-        os.fsync(tmp.fileno())
-        name = tmp.name
-    finally:
-        tmp.close()
-    os.replace(name, str(STATE_JSON))
-
+# ---------- state.json I/O (via shared module) ----------
 def _append_compact(url: str):
     """streams.http: prepend compact row, cap, bump http_index."""
-    with open(STATE_LOCK, "a+") as lf:
-        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
-        try:
-            st = _state_load_locked(lf)
-            streams = st.get("streams") or {}
-            lst = streams.get("http") or []
-            idx = int(streams.get("http_index", 0)) + 1
-            item = {"url": url, "ts": now_iso(), "idx": idx}
-            streams["http"] = [item] + lst[: max(0, MAX_COMPACT - 1)]
-            streams["http_index"] = idx
-            st["streams"] = streams
-            _state_write_locked(lf, st)
-        finally:
-            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+    def _update(st):
+        streams = st.get("streams") or {}
+        lst = streams.get("http") or []
+        idx = int(streams.get("http_index", 0)) + 1
+        item = {"url": url, "ts": now_iso(), "idx": idx}
+        streams["http"] = [item] + lst[: max(0, MAX_COMPACT - 1)]
+        streams["http_index"] = idx
+        st["streams"] = streams
+        return st
+    json_update_locked(STATE_JSON, STATE_LOCK, _update)
 
 def _append_detailed(ev: dict):
     """streams.http_events: prepend detailed flow record, cap, bump http_events_index."""
-    with open(STATE_LOCK, "a+") as lf:
-        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
-        try:
-            st = _state_load_locked(lf)
-            streams = st.get("streams") or {}
-            lst = streams.get("http_events") or []
-            idx = int(streams.get("http_events_index", 0)) + 1
-            ev["idx"] = idx
-            streams["http_events"] = [ev] + lst[: max(0, MAX_DETAILED - 1)]
-            streams["http_events_index"] = idx
-            st["streams"] = streams
-            _state_write_locked(lf, st)
-        finally:
-            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+    def _update(st):
+        streams = st.get("streams") or {}
+        lst = streams.get("http_events") or []
+        idx = int(streams.get("http_events_index", 0)) + 1
+        ev["idx"] = idx
+        streams["http_events"] = [ev] + lst[: max(0, MAX_DETAILED - 1)]
+        streams["http_events_index"] = idx
+        st["streams"] = streams
+        return st
+    json_update_locked(STATE_JSON, STATE_LOCK, _update)
 
 # ---------- connection/TLS helpers ----------
 def _addr_tuple(conn):
@@ -205,22 +203,46 @@ def build_flow_event(flow: http.HTTPFlow) -> dict:
 
         # request
         req_raw = getattr(req, "raw_content", None)
+        req_ct = None
+        try:
+            if getattr(req, "headers", None):
+                req_ct = req.headers.get("Content-Type")
+        except Exception:
+            req_ct = None
         req_obj = {
             "method": getattr(req, "method", None),
             "url":    getattr(req, "pretty_url", None) or getattr(req, "url", None),
             "http_version": getattr(req, "http_version", None),
             "body_sha256": _sha256_or_none(req_raw),
         }
+        req_btxt = _maybe_body_text(req_raw, req_ct)
+        if req_btxt is not None:
+            req_obj["body_text"] = req_btxt
+            req_obj["body_content_type"] = req_ct
 
         # response (may be absent on error)
         resp_obj = None
         if resp:
             r_raw = getattr(resp, "raw_content", None)
+            resp_ct = None
+            try:
+                if getattr(resp, "headers", None):
+                    resp_ct = resp.headers.get("Content-Type")
+            except Exception:
+                resp_ct = None
             resp_obj = {
                 "status": getattr(resp, "status_code", None),
                 "http_version": getattr(resp, "http_version", None),
                 "body_sha256": _sha256_or_none(r_raw),
             }
+            # Only embed response body text when the request itself was a form
+            # submission — the goal is to capture the form's success/error reply,
+            # not arbitrary JSON responses from page loads.
+            if req_btxt is not None:
+                resp_btxt = _maybe_body_text(r_raw, resp_ct)
+                if resp_btxt is not None:
+                    resp_obj["body_text"] = resp_btxt
+                    resp_obj["body_content_type"] = resp_ct
 
         return {
             "flow_id": rid,

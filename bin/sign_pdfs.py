@@ -2,19 +2,21 @@
 # -*- coding: utf-8 -*-
 
 """
-PDF signer for your workflow.
+Sign PDF files with an invisible, document-wide digital signature.
 
-Behavior unchanged:
+Used by download_watcher_json.py to seal each captured download into an
+"evidence vault" PDF; can also be run by hand on a file or a folder.
+
+Behavior:
   • Invisible signature (no visible field), full-document, MDP=no changes, SHA-256
-  • Incremental append (original bytes + signature)
+  • Incremental append (original bytes + signature), so the original is preserved
   • Single PDF (--pdf) or directory (--in-dir), optional --recursive
   • Include / exclude globs, output folder/suffix/overwrite, PEM or PKCS#12
 
-Portability:
-  • Credentials resolution order:
-      1) ENV: EVCAP_KEY_PEM / EVCAP_CERT_PEM / EVCAP_P12 / EVCAP_P12_PASS
-      2) evidence_capture.config: SIGN_KEY_PEM / SIGN_CERT_PEM / SIGN_P12 / SIGN_P12_PASS
-      3) Hard-coded paths (your current local defaults)
+Credentials are resolved in this order:
+  1) CLI flags: --key-pem/--cert-pem or --p12/--p12-pass
+  2) Environment: EVCAP_KEY_PEM / EVCAP_CERT_PEM / EVCAP_P12 / EVCAP_P12_PASS
+  3) evidence_capture.config: SIGN_KEY_PEM / SIGN_CERT_PEM / SIGN_P12 / SIGN_P12_PASS
 """
 
 import argparse
@@ -24,7 +26,7 @@ import sys
 from pathlib import Path
 from datetime import datetime, timezone
 
-# Optional: pull defaults from your repo config if present
+# Optional: pull defaults from evidence_capture.config if present
 try:
     # --- portable import bootstrap (find evidence_capture from anywhere) ---
     import sys as _sys, pathlib as _pathlib
@@ -45,10 +47,10 @@ try:
 except Exception:
     HAVE_PKCS12 = False
 
-# ===== Your current local defaults (kept so your machine "just works") =====
-_HARDCODE_KEY  = "/matt_key.pem"
-_HARDCODE_CERT = "/matt_cert.pem"
-_HARDCODE_P12  = "/matt_cert.p12"
+# ===== Last-resort fallbacks (empty; set env vars or evidence_capture.config) =====
+_HARDCODE_KEY  = ""
+_HARDCODE_CERT = ""
+_HARDCODE_P12  = ""
 
 # ===== Final defaults resolved with precedence: ENV → config.py → hard-coded =====
 DEFAULT_KEY_PEM  = os.environ.get("EVCAP_KEY_PEM")  or (getattr(_evcfg, "SIGN_KEY_PEM",  None) or _HARDCODE_KEY)
@@ -96,7 +98,7 @@ def load_credentials(args):
     if args.key_pem and args.cert_pem:
         return _load_pem(args.key_pem, args.cert_pem)
 
-    # 2) Defaults (prefer PEM first, like your old workflow)
+    # 2) Defaults (prefer PEM first)
     pem_key  = (DEFAULT_KEY_PEM or "").strip()
     pem_cert = (DEFAULT_CERT_PEM or "").strip()
     p12_path = (DEFAULT_P12 or "").strip()
@@ -145,16 +147,16 @@ def _load_pem(key_path_in, cert_path_in):
     return key_obj, cert_obj, []
 
 def make_meta():
-    """Invisible, full-document, MDP (no changes), SHA-256 — unchanged."""
+    """Invisible, full-document, MDP (no changes), SHA-256."""
     return {
         "sigpage":     0,
         "sigbutton":   False,
         "sigfield":    "Signature1",
         "mdp":         True,
-        "contact":     "MattGuertin@protonmail.com",
-        "location":    "Minneapolis, MN",
+        "contact":     os.environ.get("EVCAP_SIGN_CONTACT", ""),
+        "location":    os.environ.get("EVCAP_SIGN_LOCATION", ""),
         "signingdate": utc_pdf_date(),
-        "reason":      "Digitally signed by Matthew Guertin",
+        "reason":      os.environ.get("EVCAP_SIGN_REASON", "Digitally signed"),
         "md":          "sha256",
     }
 

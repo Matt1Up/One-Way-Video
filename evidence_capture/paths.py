@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import os
+import sys as _sys
 
 # Allow deployments to relocate the whole repo:
 #   EVCAP_HOME=/opt/evidence-capture python3 bin/control_all.py
@@ -22,6 +23,9 @@ CAPTURES  = ROOT / "captures"
 DOWNLOADS = ROOT / "downloads"
 IMAGES    = ROOT / "images"
 OVERLAY   = ROOT / "overlay"
+
+# Python interpreter (current venv unless overridden)
+PY = Path(os.environ.get("EVCAP_PY", _sys.executable))
 
 def ensure_runtime_dirs() -> None:
     """Create runtime dirs safely (idempotent)."""

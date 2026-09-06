@@ -10,9 +10,6 @@ Order:
 4) STOP OBS recording (video)
 5) WAIT for <SESSION>.dump.ready in --out-dir
 6) Convert <SESSION>.dump -> redacted HAR
-
-Filename resolution priority:
-    --filename  >  --session-name  >  state.json["session_name"]  >  "session"
 """
 
 # --- portable import bootstrap (find evidence_capture from anywhere) ---
@@ -25,45 +22,57 @@ import subprocess
 import sys as _sys
 import time
 import os
-import json
-import fcntl
 from pathlib import Path
 
-# ---------- Paths (portable via evidence_capture) ----------
-from evidence_capture.paths import (
-    ROOT, BIN, RUN, WEB, ensure_runtime_dirs, resolve
-)
+# ========= Shared modules =========
+from evidence_capture.paths import ROOT, BIN, RUN, PY, ensure_runtime_dirs
+from evidence_capture.state import state_read
 
 # Must match capture_randomized_save_json.py's pidfile location
 CAPTURE_PID_FILE = RUN / "capture.pid"
-
-# State file (for session_name)
-STATE_JSON = RUN / "state.json"
-STATE_LOCK = RUN / "state.lock"
 
 # Defaults (can be overridden via env or CLI)
 DEFAULT_OUT_DIR    = Path(os.environ.get("EVCAP_DUMP_DIR", str(ROOT / "run" / "dumps")))
 DEFAULT_HAR_OUTDIR = Path(os.environ.get("EVCAP_HAR_DIR",  str(ROOT / "run" / "dumps" / "processed")))
 
-# Interpreter selection
-# PY  -> use current Python for all the stop/teardown helpers
-# MITM_PY -> dedicated interpreter for mitm dump -> HAR conversion
-PY        = Path(os.environ.get("EVCAP_PY", _sys.executable))
-MITM_PY   = Path(os.environ.get("EVCAP_MITM_PY", "~/.pyenv/versions/mitm-3.13/bin/python")).expanduser()
+# Dedicated interpreter for mitm dump -> HAR conversion.
+#
+# mitmproxy lives in its own venv (~/.venvs/mitm) because of dependency pins.
+# When stop_json is launched from a shell without that venv on PATH, falling
+# back to the parent PY means /usr/bin/python3 — which has no mitmproxy and
+# fails the HAR conversion with exit 2. Discover the dedicated venv up front
+# so the chain works regardless of which shell launched the controller.
+def _resolve_mitm_py() -> Path:
+    override = os.environ.get("EVCAP_MITM_PY")
+    if override:
+        return Path(override).expanduser()
+    candidates = [
+        Path.home() / ".venvs" / "mitm" / "bin" / "python",
+        Path.home() / ".venvs" / "mitm" / "bin" / "python3",
+    ]
+    for c in candidates:
+        if c.is_file() and os.access(c, os.X_OK):
+            return c
+    return Path(str(PY))  # last-resort: hope mitmproxy is in this interpreter
+
+
+MITM_PY = _resolve_mitm_py()
 
 # Converter path
 HAR_CONVERTER = BIN / "dump_to_redacted_har_sanitized.py"
 
-# ---------- Small utils ----------
+
+# ---------- Helpers ----------
 def run_cmd(cmd):
     print(f"[RUN] {' '.join(str(c) for c in cmd)}")
     subprocess.run(cmd, check=True)
 
+
 def ensure_dump_ext(name: str) -> str:
     return name if name.lower().endswith(".dump") else f"{name}.dump"
 
+
 def wait_for_ready(out_dir: Path, filename_dump: str, timeout: int = 600, poll: float = 0.5) -> bool:
-    """Wait for <filename_dump>.ready to appear in out_dir."""
     ready = out_dir / f"{filename_dump}.ready"
     print(f"[WAIT] ready signal: {ready}")
     deadline = time.time() + timeout
@@ -74,6 +83,7 @@ def wait_for_ready(out_dir: Path, filename_dump: str, timeout: int = 600, poll: 
         time.sleep(poll)
     return False
 
+
 def pid_is_running(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -81,8 +91,8 @@ def pid_is_running(pid: int) -> bool:
     except OSError:
         return False
 
+
 def wait_for_capture_stop(timeout: float = 30.0, poll: float = 0.25):
-    """Wait until capture_randomized_save_json.py fully stops (pid file removed or pid gone)."""
     pid = None
     if CAPTURE_PID_FILE.exists():
         try:
@@ -104,7 +114,6 @@ def wait_for_capture_stop(timeout: float = 30.0, poll: float = 0.25):
             return True
         time.sleep(poll)
 
-    # Timed out; continue anyway per your preference
     left = []
     if CAPTURE_PID_FILE.exists():
         left.append("pidfile")
@@ -114,45 +123,18 @@ def wait_for_capture_stop(timeout: float = 30.0, poll: float = 0.25):
     print(f"[WARN] image grabber did not stop within {timeout}s ({note}); continuing.")
     return False
 
-# ---------- Locked state read ----------
-class Flock:
-    def __init__(self, lock_path: Path): self.lock_path = lock_path; self.fd = None
-    def __enter__(self):
-        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-        self.fd = os.open(self.lock_path, os.O_CREAT | os.O_RDWR, 0o644)
-        fcntl.flock(self.fd, fcntl.LOCK_EX)
-        return self
-    def __exit__(self, *a):
-        try: fcntl.flock(self.fd, fcntl.LOCK_UN)
-        finally: os.close(self.fd); self.fd = None
-
-def read_state() -> dict:
-    if not STATE_JSON.exists():
-        return {}
-    try:
-        with Flock(STATE_LOCK):
-            with STATE_JSON.open("r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        return {}
 
 # ---------- Main ----------
 def main():
     ensure_runtime_dirs()
 
     ap = argparse.ArgumentParser(description="Stop recorders and convert dump to HAR (session_name-aware).")
-    ap.add_argument("--session-name",
-                    help="If provided, used as dump base name (e.g., <session-name>.dump).")
-    ap.add_argument("--filename",
-                    help="Optional explicit dump base name (overrides session-name/state). .dump appended if missing.")
-    ap.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR,
-                    help="Directory where mitm dumps are stored (default: %(default)s)")
-    ap.add_argument("--har-out-dir", type=Path, default=DEFAULT_HAR_OUTDIR,
-                    help="Directory where processed HAR files are written (default: %(default)s)")
-    ap.add_argument("--timeout", type=int, default=600,
-                    help="Seconds to wait for <name>.dump.ready (default: 600)")
-    ap.add_argument("--capture-timeout", type=float, default=30.0,
-                    help="Seconds to wait for image grabber to stop before proceeding (default: 30)")
+    ap.add_argument("--session-name", help="If provided, used as dump base name.")
+    ap.add_argument("--filename", help="Optional explicit dump base name (overrides session-name/state).")
+    ap.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
+    ap.add_argument("--har-out-dir", type=Path, default=DEFAULT_HAR_OUTDIR)
+    ap.add_argument("--timeout", type=int, default=600)
+    ap.add_argument("--capture-timeout", type=float, default=30.0)
     args = ap.parse_args()
 
     out_dir: Path = Path(args.out_dir).expanduser().resolve()
@@ -166,51 +148,73 @@ def main():
     else:
         sess = args.session_name
         if not sess:
-            st = read_state()
+            st = state_read()
             sess = st.get("session_name") or "session"
         base = sess
 
     filename_dump = ensure_dump_ext(base)
     dump_path = out_dir / filename_dump
 
-    try:
-        # 1) STOP image grabber FIRST, then wait for it to fully exit
-        run_cmd([str(PY), str(BIN / "capture_randomized_save_json.py"), "stop"])
-        wait_for_capture_stop(timeout=args.capture_timeout)
+    # Each teardown step is best-effort — we don't want a failure in
+    # step 2 to prevent OBS from stopping recording in step 4.
+    errors = []
 
-        # 2) STOP network stream (quiet, fire-and-forget)
-        run_cmd([str(PY), str(BIN / "netstream_ctrl_json.py"), "STOP", "--quiet"])
+    def try_step(label, fn):
+        try:
+            fn()
+        except Exception as e:
+            msg = f"[WARN] {label}: {e}"
+            print(msg, file=sys.stderr)
+            errors.append(msg)
 
-        # 3) STOP HTTP recording (mitm)
-        run_cmd([str(PY), str(BIN / "mitm_dump_control.py"), "stop"])
+    # 1) STOP image grabber FIRST, then wait for it to fully exit
+    try_step("Stop image grabber",
+             lambda: run_cmd([str(PY), str(BIN / "capture_randomized_save_json.py"), "stop"]))
+    wait_for_capture_stop(timeout=args.capture_timeout)
 
-        # 4) STOP OBS STUDIO RECORDING
-        run_cmd([str(PY), str(BIN / "obs_studio_ctrl.py"), "stop"])
+    # 2) STOP network stream (quiet, fire-and-forget)
+    try_step("Stop netstream",
+             lambda: run_cmd([str(PY), str(BIN / "netstream_ctrl_json.py"), "STOP", "--quiet"]))
 
-        # 5) WAIT for <SESSION>.dump.ready
-        if not wait_for_ready(out_dir, filename_dump, timeout=args.timeout):
-            print(f"ERROR: Timed out waiting for {filename_dump}.ready in {out_dir}", file=sys.stderr)
-            sys.exit(1)
+    # 3) STOP HTTP recording (mitm)
+    try_step("Stop mitm",
+             lambda: run_cmd([str(PY), str(BIN / "mitm_dump_control.py"), "stop"]))
 
-        if not dump_path.exists():
-            print(f"ERROR: Expected dump not found: {dump_path}", file=sys.stderr)
-            sys.exit(1)
+    # 4) STOP OBS STUDIO RECORDING — always attempted regardless of prior errors
+    try_step("Stop OBS recording",
+             lambda: run_cmd([str(PY), str(BIN / "obs_studio_ctrl.py"), "stop"]))
 
-        # 6) Convert to HAR using the dedicated mitm venv
-        run_cmd([
-            str(MITM_PY), str(HAR_CONVERTER),
-            "--in", str(dump_path),
-            "--out-dir", str(har_out_dir),
-            "--keep-bodies", "--keep-bodies-hash"
-        ])
-        print("[DONE] Conversion complete.")
+    # 5) WAIT for <SESSION>.dump.ready (only if mitm was running)
+    has_dump = False
+    if dump_path.exists():
+        if wait_for_ready(out_dir, filename_dump, timeout=args.timeout):
+            has_dump = True
+        else:
+            # .ready didn't appear but dump exists — mitm may have stopped uncleanly
+            print(f"[WARN] No .ready sentinel, but dump exists: {dump_path}", file=sys.stderr)
+            has_dump = True
+    else:
+        print(f"[WARN] Dump file not found: {dump_path}", file=sys.stderr)
 
-    except subprocess.CalledProcessError as e:
-        print(f"Command failed (exit {e.returncode}): {e.cmd}", file=sys.stderr)
-        sys.exit(e.returncode)
-    except Exception as ex:
-        print(f"Unhandled error: {ex}", file=sys.stderr)
-        sys.exit(1)
+    # 6) Convert to HAR (if we have a dump)
+    if has_dump:
+        try_step("HAR conversion",
+                 lambda: run_cmd([
+                     str(MITM_PY), str(HAR_CONVERTER),
+                     "--in", str(dump_path),
+                     "--out-dir", str(har_out_dir),
+                     "--keep-bodies-hash",
+                     "--include-bodies",
+                     "--no-body-sanitize",
+                 ]))
+
+    if errors:
+        print(f"\n[DONE with {len(errors)} warning(s)]")
+        for e in errors:
+            print(f"  {e}")
+    else:
+        print("[DONE] Clean shutdown and conversion complete.")
+
 
 if __name__ == "__main__":
     main()
