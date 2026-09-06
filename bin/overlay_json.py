@@ -15,7 +15,7 @@ _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[1]))
 # ----------------------------------------------------------------------
 
 from pathlib import Path
-import sys, argparse, time, json, re, os
+import sys, argparse, re
 from PyQt5 import QtWidgets, QtCore, QtGui
 
 # Repo-anchored paths
@@ -285,7 +285,7 @@ def main():
 
     app = QtWidgets.QApplication([])
 
-    win = PrevHashWindow(state_json, lock_file, args.key,
+    win = PrevHashWindow(state_json, lock_file, args.key,  # noqa: F841 — keep a reference; a parentless Qt widget with none is garbage-collected
                          bg_rgba, fg_rgba,
                          args.font_family, args.font_size, args.font_weight,
                          args.padding, args.valign, args.refresh,

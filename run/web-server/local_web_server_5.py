@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, json, os, re, csv, urllib.parse, sys
+import argparse, json, os, re, csv, urllib.parse
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 

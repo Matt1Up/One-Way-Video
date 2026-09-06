@@ -185,9 +185,9 @@ def build_parser():
 
     # Credentials
     grp_cred = p.add_mutually_exclusive_group(required=False)
-    grp_cred.add_argument("--p12", help=f"PKCS#12 file (default chain: env/config/hardcoded)")
-    grp_cred.add_argument("--key-pem", help=f"PEM private key path (default chain: env/config/hardcoded)")
-    p.add_argument("--cert-pem", help=f"PEM certificate path (required with --key-pem)")
+    grp_cred.add_argument("--p12", help="PKCS#12 file (default chain: env/config/hardcoded)")
+    grp_cred.add_argument("--key-pem", help="PEM private key path (default chain: env/config/hardcoded)")
+    p.add_argument("--cert-pem", help="PEM certificate path (required with --key-pem)")
     p.add_argument("--p12-pass", default=None, help="PKCS#12 password (if needed).")
 
     # Output

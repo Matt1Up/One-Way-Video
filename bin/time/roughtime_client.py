@@ -416,7 +416,7 @@ def main():
         if not Ed25519Verifier(online).verify(srep_sig, CTX_SREP + srep_b):
             raise SystemExit("Bundle: SREP invalid")
 
-        srep = RTMessage.parse(srep_b)
+        RTMessage.parse(srep_b)  # structure check only; raises on a malformed SREP
         if not verify_inclusion(bytes.fromhex(pr["nonce"]), pr["indx"],
                                 bytes.fromhex(pr["path"]), bytes.fromhex(pr["root"])):
             raise SystemExit("Bundle: Merkle inclusion failed")

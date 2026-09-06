@@ -18,19 +18,18 @@ _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[1]))
 # ----------------------------------------------------------------------
 
 import argparse, json, sys, time
-from pathlib import Path
 
 # ========= Shared modules =========
-from evidence_capture.paths import ROOT, RUN, BIN, PY, ensure_runtime_dirs
+from evidence_capture.paths import RUN, BIN, PY, ensure_runtime_dirs
 from evidence_capture.timeutil import ts_local_ns
 from evidence_capture.hashing import sha256_file, sha256_bytes
 from evidence_capture.state import (
-    state_read, state_get, state_get_with_time, state_set_with_time,
-    snapshot_stream, snapshot_tail_list, snapshot_last_files,
+    state_read, state_get_with_time, state_set_with_time,
+    snapshot_stream, snapshot_last_files,
     log_last_hash_change,
 )
 from evidence_capture.process import make_logger, run_cmd, wait_for_file
-from evidence_capture.evidence import roughtime_bind, ots_stamp, LAST_RT_TXT
+from evidence_capture.evidence import LAST_RT_TXT
 
 # ---------- Paths ----------
 BUNDLES  = RUN / "bundles"
@@ -159,7 +158,6 @@ def main():
     st_now = state_read()
     http_snap = snapshot_stream(st_now, "http", 5)
     net_snap = snapshot_stream(st_now, "net", 5)
-    http_events_snap = snapshot_tail_list(st_now, "http_events", 5)
 
     # 6) last_files snapshot
     last_files_data = snapshot_last_files()

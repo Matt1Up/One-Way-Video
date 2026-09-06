@@ -22,13 +22,12 @@ import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 # ----------------------------------------------------------------------
 
-import os, json, fcntl, argparse
-from pathlib import Path
+import json, fcntl, argparse
 
 import gi
 gi.require_version('Gst', '1.0')
 gi.require_version('GObject', '2.0')
-from gi.repository import Gst, GObject, GLib
+from gi.repository import Gst, GLib
 
 # ---------- Portable paths ----------
 from evidence_capture.paths import RUN, ensure_runtime_dirs

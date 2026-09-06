@@ -12,7 +12,6 @@ _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[1]))
 # ----------------------------------------------------------------------
 
 from datetime import datetime, timezone
-from pathlib import Path
 
 from evidence_capture.paths import RUN, ensure_runtime_dirs
 

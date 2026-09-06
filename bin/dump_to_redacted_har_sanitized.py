@@ -15,7 +15,6 @@ import argparse
 import base64
 import gzip
 import hashlib
-import io
 import json
 import os
 import re
@@ -369,7 +368,6 @@ def make_har_entry_and_event(flow: Any, keep_bodies_hash: bool = False, include_
 
     resp_body_sha = None
     resp_body_len = -1
-    resp_body_prefix = None
     content_obj = {"size": 0, "mimeType": ""}
     try:
         raw_resp_content = try_getattr(resp, "content", "raw_content", "text", None)
@@ -392,7 +390,6 @@ def make_har_entry_and_event(flow: Any, keep_bodies_hash: bool = False, include_
                 content_obj = {"size": resp_body_len or 0, "mimeType": ctype or ""}
             if keep_bodies_hash and raw_bytes is not None:
                 resp_body_sha = sha256_of_bytes(raw_bytes)
-                resp_body_prefix = safe_b64_prefix(raw_bytes, 512)
     except Exception:
         content_obj = {"size": 0, "mimeType": ""}
 

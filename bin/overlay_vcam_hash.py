@@ -13,8 +13,7 @@ import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 # ----------------------------------------------------------------------
 
-import argparse, json, os, time, signal, subprocess
-from pathlib import Path
+import argparse, os, time, signal, subprocess
 
 # ---------- Portable paths ----------
 from evidence_capture.paths import RUN, ensure_runtime_dirs

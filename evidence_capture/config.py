@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict
 from .paths import resolve
 
 # Keys in your profiles that represent file paths (string) or list-of-paths

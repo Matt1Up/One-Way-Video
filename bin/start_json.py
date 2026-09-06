@@ -21,11 +21,11 @@ import argparse, json, os, sys, time, subprocess, shutil, glob
 from pathlib import Path
 
 # ========= Shared modules =========
-from evidence_capture.paths import ROOT, RUN, BIN, PY, ensure_runtime_dirs
-from evidence_capture.timeutil import ts_local_ns, now_utc_iso
+from evidence_capture.paths import RUN, BIN, PY, ensure_runtime_dirs
+from evidence_capture.timeutil import ts_local_ns
 from evidence_capture.hashing import sha256_file, sha256_bytes
 from evidence_capture.state import (
-    state_read, state_write, state_get, state_set_with_time, state_update,
+    state_read, state_get, state_set_with_time, state_update,
     state_clear_streams_and_files_recent,
     snapshot_last_files, snapshot_stream,
     log_last_hash_change, LAST_HASH_LOG,

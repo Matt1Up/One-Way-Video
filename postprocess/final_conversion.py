@@ -208,7 +208,7 @@ def _refresh_pending_ots_upgrades() -> None:
     upgraded_now = 0
     for p in pending:
         try:
-            r = subprocess.run([ots_cli, "upgrade", str(p)],
+            subprocess.run([ots_cli, "upgrade", str(p)],
                                capture_output=True, text=True, check=False)
             if p.stat().st_size >= OTS_PENDING_SIZE_THRESHOLD:
                 upgraded_now += 1
@@ -287,7 +287,7 @@ def stage_source(dump_path: Path, har_path: Path) -> None:
         if backup.exists():
             shutil.rmtree(backup)
         SOURCE_DIR.rename(backup)
-        step(f"existing 01__source/ → 01__source.bak/ (previous contents preserved)")
+        step("existing 01__source/ → 01__source.bak/ (previous contents preserved)")
     SOURCE_DIR.mkdir(parents=True, exist_ok=True)
 
     # 4a: bundle outputs (with rename)

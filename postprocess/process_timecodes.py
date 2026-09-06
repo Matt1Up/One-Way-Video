@@ -20,16 +20,13 @@ Requires: pandas, numpy
 from __future__ import annotations
 
 import argparse
-import csv
-import io
 import json
 import math
 import os
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Optional
 from urllib.parse import urlparse
 
 import numpy as np
@@ -498,7 +495,6 @@ def build_bundles(source_dir: Path) -> pd.DataFrame:
         else:
             # 3) image.sha256.sys_time
             img_sha_sys = _get("image.sha256.sys_time")
-            img_path = os.path.basename(_get("image.path") or "")
             img_sha_val = _get("image.sha256.value") or None
 
             if img_sha_sys:
@@ -518,7 +514,6 @@ def build_bundles(source_dir: Path) -> pd.DataFrame:
 
             # 4) image.ots.sys_time
             ots_sys = _get("image.ots.sys_time")
-            ots_path = os.path.basename(_get("image.ots.path") or "")
             ots_rt = os.path.basename(_get("image.ots.rt_json") or "")
 
             if ots_sys:
@@ -593,7 +588,7 @@ def build_http_events(source_dir: Path) -> pd.DataFrame:
         # Try mitmproxy conversion
         result = _try_convert_dump(dump_path, source_dir)
         if result is not None:
-            print(f"    (converted .dump via mitmproxy)")
+            print("    (converted .dump via mitmproxy)")
             return _build_http_from_events_json(result, out_cols)
 
         print(f"    (found {dump_path.name} but no events JSON and mitmproxy unavailable)")
@@ -1286,7 +1281,7 @@ def run_pipeline(source_dir: Path, output_dir: Path, *, skip_network: bool = Fal
         "outputs": outputs,
     }
     _write_json(output_dir / "meta.json", meta)
-    print(f"  [meta] -> meta.json")
+    print("  [meta] -> meta.json")
 
     print()
     print("[pipeline] Done.")
@@ -1295,7 +1290,7 @@ def run_pipeline(source_dir: Path, output_dir: Path, *, skip_network: bool = Fal
     print("  - HAR data: fully reproduced from source HAR CSVs")
     print("  - Bundles:  fully reproduced from BUNDLES.json")
     print(f"  - Downloads: {len(downloads_df)} rows; vault timestamps estimated")
-    print(f"    (exact vault timestamps require .pdf.meta.json files not in source)")
+    print("    (exact vault timestamps require .pdf.meta.json files not in source)")
     if network_df is not None:
         print(f"  - Network:  {len(network_df)} events")
     else:

@@ -41,7 +41,6 @@ import csv
 import gzip
 import html
 import json
-import os
 import re
 import sys
 from email import message_from_bytes

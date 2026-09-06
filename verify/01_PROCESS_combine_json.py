@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 import json
 import argparse
 from pathlib import Path

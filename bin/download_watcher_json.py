@@ -21,9 +21,8 @@ import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 # ----------------------------------------------------------------------
 
-import argparse, json, os, sys as _sys, time, re, shutil, zipfile, subprocess, tempfile, hashlib, fcntl, signal
+import argparse, json, time, re, shutil, zipfile, subprocess, signal
 from pathlib import Path
-from datetime import datetime, timezone
 from typing import Dict, Tuple, Optional, List
 
 try:
@@ -38,8 +37,8 @@ from evidence_capture.paths import (
 from evidence_capture.timeutil import ts_local_ns, now_utc_iso
 from evidence_capture.hashing import sha256_file as sha256_stream
 from evidence_capture.state import (
-    Flock, json_read_locked, json_write_locked, json_update_locked,
-    state_read, state_write, state_set_with_time, state_inc_file_count,
+    json_read_locked, json_write_locked, json_update_locked,
+    state_read, state_set_with_time, state_inc_file_count,
     STATE_JSON, STATE_LOCK,
 )
 from evidence_capture.process import make_logger, run_cmd as _run_cmd

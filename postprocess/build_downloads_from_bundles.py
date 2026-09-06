@@ -134,7 +134,7 @@ def main() -> None:
         "t_ms_max":  events[-1]["t_ms"] if events else None,
     }
     META_JSON.write_text(json.dumps(meta), encoding="utf-8")
-    print(f"[downloads] patched meta.json outputs.downloads")
+    print("[downloads] patched meta.json outputs.downloads")
 
 
 if __name__ == "__main__":

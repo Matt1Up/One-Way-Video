@@ -30,7 +30,6 @@ import time
 import os
 import sys
 import signal
-import random
 import tempfile
 import shutil
 import subprocess
@@ -535,9 +534,9 @@ def main():
     common.add_argument("--no-meta", action="store_true", dest="no_meta", help="Do not write JSON sidecar metadata files (only PNGs will be saved)")
     common.add_argument("--no-overlay", action="store_true", dest="no_overlay", help="Do not draw the last-hash overlay on the saved images")
     common.add_argument("--no-counter", action="store_true", dest="no_counter", help="Do not use / update the numeric counter file (use timestamp filenames)")
-    p_start = sub.add_parser("start", parents=[common], help="start background daemon")
-    p_stop = sub.add_parser("stop", help="stop background daemon")
-    p_run = sub.add_parser("run", parents=[common], help="run in foreground (for testing)")
+    sub.add_parser("start", parents=[common], help="start background daemon")
+    sub.add_parser("stop", help="stop background daemon")
+    sub.add_parser("run", parents=[common], help="run in foreground (for testing)")
     args = p.parse_args()
 
     if args.cmd in ("start", "run"):

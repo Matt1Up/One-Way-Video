@@ -41,7 +41,7 @@ from pathlib import Path
 
 # ---------- Paths (portable via evidence_capture) ----------
 from evidence_capture.paths import (
-    ROOT, BIN, RUN, RUN_LOGS as LOGS, RUN_LOCKS as LOCKDIR,
+    BIN, RUN, RUN_LOGS as LOGS, RUN_LOCKS as LOCKDIR,
     ensure_runtime_dirs
 )
 

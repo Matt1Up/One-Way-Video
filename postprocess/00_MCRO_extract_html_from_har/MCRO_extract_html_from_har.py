@@ -36,7 +36,6 @@ import gzip
 import json
 import os
 import re
-import sys
 from urllib.parse import urlsplit, parse_qsl
 
 # ------------------------

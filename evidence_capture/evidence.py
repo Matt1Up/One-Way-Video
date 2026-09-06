@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from .paths import ROOT, BIN, RUN, PY
+from .paths import BIN, RUN, PY
 from .process import run_cmd, log as default_log
 
 TIME_DIR = BIN / "time"

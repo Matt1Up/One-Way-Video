@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "one-way-video"
+version = "2.0.0"
+description = "Hash-chained, dual-timestamped browser session capture, with an independent verification pipeline and synchronized playback"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Matt Guertin", email = "Matt@MnCourtFraud.com" }]
+keywords = [
+  "evidence", "chain-of-custody", "digital-forensics", "opentimestamps", "roughtime",
+  "mitmproxy", "obs-studio", "hash-chain", "screen-recording",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Legal Industry",
+  "Intended Audience :: Information Technology",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Security",
+  "Topic :: Multimedia :: Video :: Capture",
+]
+
+# Stage 1 (capture). Keep in sync with requirements.txt.
+dependencies = [
+  "Pillow>=10.0",
+  "PyMuPDF>=1.23",
+  "cryptography>=41.0",
+  "endesive>=2.0",
+  "obsws-python>=1.6",
+  "PyQt5>=5.15",
+  "mss>=9.0",
+  "opentimestamps-client>=0.7",
+]
+
+[project.optional-dependencies]
+# Stage 2 (verify/): frame OCR needs the tesseract-ocr system package as well.
+verify = ["pytesseract>=0.3.10", "requests>=2.31"]
+# Stage 2b (postprocess/): timecode alignment.
+postprocess = ["pandas>=2.0", "numpy>=1.24"]
+dev = ["ruff>=0.5", "pytest>=8"]
+# mitmproxy is deliberately NOT listed: it pins conflicting versions and lives
+# in its own virtualenv (see requirements-mitm.txt and EVCAP_MITM_PY).
+
+[project.urls]
+Homepage = "https://github.com/Matt1Up/One-Way-Video"
+"Live demo" = "https://mncourtfraud.com/evidence/"
+"Write-up" = "https://matt1up.substack.com/p/one-way-video"
+Issues = "https://github.com/Matt1Up/One-Way-Video/issues"
+
+[project.scripts]
+# `evcap ...` == `python3 bin/control_all.py ...`
+evcap = "evidence_capture.cli:main"
+
+[tool.setuptools]
+packages = ["evidence_capture"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = [".venv", "bin/original_scripts"]
+
+[tool.ruff.lint]
+# Correctness rules only: syntax errors, undefined names, unused imports/variables.
+select = ["E4", "E7", "E9", "F"]
+ignore = [
+  "E401",  # multiple imports on one line   — style, common in the capture scripts
+  "E402",  # import not at top of file      — the "portable import bootstrap" pattern
+           #                                  (sys.path.insert before imports) needs this
+  "E701",  # multiple statements on one line (colon)     — one-liner guard style in legacy code
+  "E702",  # multiple statements on one line (semicolon) — same
+  "E731",  # lambda assigned to a name — playback/serve.py is kept byte-identical to the live site
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

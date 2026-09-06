@@ -35,7 +35,7 @@ from dataclasses import is_dataclass, asdict
 try:
     from obsws_python import ReqClient
     from obsws_python.error import OBSSDKRequestError
-except Exception as e:
+except Exception:
     print("This tool requires 'obsws-python' (pip install obsws-python).", file=sys.stderr)
     raise
 

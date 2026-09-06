@@ -65,7 +65,7 @@ def main():
         print(f"  EVCAP_MITM_PY                  {OK}  ({mitm_py})")
     else:
         print(f"  EVCAP_MITM_PY                  {WARN}  (not set or not found; HAR conversion will fail)")
-        print(f"    Set: export EVCAP_MITM_PY=~/.venvs/mitm/bin/python")
+        print("    Set: export EVCAP_MITM_PY=~/.venvs/mitm/bin/python")
 
     # --- System tools ---
     print("\n--- System tools (apt install) ---")
@@ -114,13 +114,16 @@ def main():
     cert_pem = os.environ.get("EVCAP_CERT_PEM", "")
     p12 = os.environ.get("EVCAP_P12", "")
     if key_pem and os.path.isfile(os.path.expanduser(key_pem)):
-        print(f"  EVCAP_KEY_PEM                  {OK}  ({key_pem})")
+        if cert_pem and os.path.isfile(os.path.expanduser(cert_pem)):
+            print(f"  EVCAP_KEY_PEM + EVCAP_CERT_PEM {OK}  ({key_pem})")
+        else:
+            print(f"  EVCAP_KEY_PEM                  {WARN}  (set, but EVCAP_CERT_PEM is missing; PDF signing needs both)")
     elif p12 and os.path.isfile(os.path.expanduser(p12)):
         print(f"  EVCAP_P12                      {OK}  ({p12})")
     else:
         print(f"  EVCAP_KEY_PEM / EVCAP_P12      {WARN}  (not set; PDF signing will fail)")
-        print(f"    Set: export EVCAP_KEY_PEM=/path/to/key.pem")
-        print(f"         export EVCAP_CERT_PEM=/path/to/cert.pem")
+        print("    Set: export EVCAP_KEY_PEM=/path/to/key.pem")
+        print("         export EVCAP_CERT_PEM=/path/to/cert.pem")
 
     # --- Summary ---
     print("\n" + "=" * 60)

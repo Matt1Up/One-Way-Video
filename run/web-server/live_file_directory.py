@@ -20,7 +20,7 @@ _sys.path.insert(0, str(_REPO_ROOT))
 from evidence_capture.paths import RUN
 # --------------------------------------------------------
 
-import argparse, json, os, re, sys, time
+import argparse, json, os, re, time
 from pathlib import Path
 from typing import List, Dict, Tuple
 

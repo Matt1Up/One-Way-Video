@@ -18,7 +18,7 @@ _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[1]))
 # ----------------------------------------------------------------------
 
 from mitmproxy import ctx, http
-import os, json, hashlib, math
+import os, hashlib, math
 from pathlib import Path
 from datetime import datetime, timezone
 

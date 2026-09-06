@@ -61,7 +61,7 @@ def archive_session(session_name: str, obs_dir: Path, since_minutes: int = 30):
 
     if session_dir.exists() and any(session_dir.iterdir()):
         print(f"[WARN] Session directory already has content: {session_dir}")
-        print(f"       Skipping archive to avoid overwriting.")
+        print("       Skipping archive to avoid overwriting.")
         return
 
     session_dir.mkdir(parents=True, exist_ok=True)
