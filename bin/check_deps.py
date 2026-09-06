@@ -45,6 +45,11 @@ def main():
         ("PyQt5", "PyQt5"),
         ("mss", "mss"),
         ("opentimestamps-client", "opentimestamps"),
+        # verify/ and postprocess/
+        ("pytesseract", "pytesseract"),
+        ("requests", "requests"),
+        ("pandas", "pandas"),
+        ("numpy", "numpy"),
     ]
     for display, imp in pkgs:
         found = check_python_pkg(display, imp)
@@ -71,6 +76,7 @@ def main():
         ("exiftool", "sudo apt install libimage-exiftool-perl"),
         ("pdfsig", "sudo apt install poppler-utils"),
         ("ots", "pip install opentimestamps-client"),
+        ("tesseract", "sudo apt install tesseract-ocr   (frame OCR in verify/)"),
     ]
     for name, install in tools:
         found = check_system_cmd(name)

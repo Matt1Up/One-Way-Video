@@ -22,3 +22,11 @@ mss>=9.0
 
 # --- OpenTimestamps ---
 opentimestamps-client>=0.7
+
+# --- Verification pipeline (verify/) ---
+pytesseract>=0.3.10     # frame OCR; also needs the tesseract-ocr system package
+requests>=2.31          # Bitcoin block lookups (blockstream.info) in stage 06
+
+# --- Post-processing / timecoding (postprocess/) ---
+pandas>=2.0
+numpy>=1.24
