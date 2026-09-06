@@ -1,0 +1,37 @@
+{
+  "bases": {
+    "video": "data",
+    "session": "data"
+  },
+  "fps": 30,
+  "tick_ms": 33,
+  "jump_threshold_ms": 500,
+  "png_preload_ahead": 5,
+  "png_buffer_behind": 3,
+  "bundle_preload_ahead": 5,
+  "bundle_buffer_behind": 3,
+  "screenshot_offset_ms": 0,
+  "playback_speed_min": 0.25,
+  "playback_speed_max": 4.0,
+  "playback_speed_default": 1.0,
+  "network_fifo_rows": 100,
+  "http_fifo_rows": 20,
+  "hide_network_cols": [],
+  "hide_http_cols": [],
+  "animation_offsets": {
+    "png_slide_in_ms": 0,
+    "hash_appear_ms": 200,
+    "hash_pop_out_ms": -500,
+    "card_collapse_ms": 0,
+    "chain_deposit_ms": 200
+  },
+  "sessions": [
+    {
+      "slug": "example-session",
+      "name": "Example Session",
+      "video_file": "video_web.mp4",
+      "bundle_count": 280,
+      "downloads": 6
+    }
+  ]
+}

@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920">
+  <title>One-Way-Video — Session Playback</title>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <link rel="stylesheet" href="../assets/css/animations.css">
+</head>
+<body>
+
+  <!-- ═══ HEADER BAR ═══ -->
+  <div class="header">
+    <div class="header-brand">
+      <a href="../index.html" class="brand-name">One-Way-Video</a>
+      <a href="../index.html" class="back-link">&lt;~~One Way Video sessions</a>
+    </div>
+    <div class="header-transport">
+      <span class="transport-label">Speed</span>
+      <span class="speed-val" id="speed-display">1.00</span>x
+      <input type="range" class="speed-slider" id="speed-slider" min="0.25" max="4" step="0.25" value="1">
+      <button class="play-btn" id="btn-play-pause" title="Play/Pause">&#x25B6;</button>
+      <span class="seek-time" id="seek-current">0:00</span>
+      <span class="seek-sep">/</span>
+      <span class="seek-time" id="seek-duration">0:00</span>
+      <input type="range" class="seek-slider" id="seek-slider" min="0" max="1000" value="0" step="0.1">
+      <span class="vol-icon">&#x1F50A;</span>
+      <input type="range" class="vol-slider" id="vol-slider" min="0" max="1" step="0.05" value="1">
+    </div>
+    <span class="header-spacer"></span>
+    <span class="header-session" id="session-name">Loading...</span>
+  </div>
+
+  <!-- ═══ TOGGLE BUTTONS ═══ -->
+  <div class="toggle-bar">
+    <button class="toggle-btn" id="pdf-toggle">Pdf View On/Off</button>
+    <button class="toggle-btn" id="provenance-toggle">Provenance | Files and Validation Reports</button>
+  </div>
+
+  <!-- ═══ MAIN LAYOUT ═══ -->
+  <div class="main-layout">
+
+    <!-- LEFT COLUMN: PNG / PDF / Provenance -->
+    <div class="left-col">
+      <div class="left-viewport" id="left-viewport">
+        <div id="png-wrap">
+          <img id="png-display" alt="OBS Screenshot">
+        </div>
+        <div id="pdf-wrap" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN: Video -->
+    <div class="right-col">
+      <div class="video-container">
+        <video id="video" preload="metadata" muted></video>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ HASH COMPARISON ZONE ═══ -->
+  <div class="hash-zone" id="hash-zone">
+    <div class="hash-row">
+      <div class="hash-left">
+        <span class="hash-entry-label hash-img-label"><a class="hash-file-link" id="hash-img-file-link" href="#">0000.png</a> | OBS Screen Capture SHA256 Hash</span>
+        <div class="hash-entry-value hash-img-value">---</div>
+      </div>
+      <div class="hash-right">
+        <span class="hash-entry-label hash-bundle-label"><a class="hash-file-link" id="hash-bundle-file-link" href="#">0000.json</a> | Bundle 0000 SHA256 Hash</span>
+        <div class="hash-entry-value hash-bundle-value">---</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ BUNDLE DATA ZONE ═══ -->
+  <div class="bundle-data-zone" id="bundle-data-zone">
+    <div class="summary-lines" id="summary-lines">
+      <div class="summary-line" id="summary-http">
+        <span class="summary-arrow">&#x25BD;</span>
+        <span class="summary-label">HTTP</span>
+        <span class="summary-value">---</span>
+      </div>
+      <div class="summary-line" id="summary-network">
+        <span class="summary-arrow">&#x25BD;</span>
+        <span class="summary-label">NETWORK</span>
+        <span class="summary-value">---</span>
+      </div>
+      <div class="summary-line" id="summary-http-events">
+        <span class="summary-arrow">&#x25BD;</span>
+        <span class="summary-label">HTTP EVENTS</span>
+        <span class="summary-value">---</span>
+      </div>
+      <div class="summary-line" id="summary-downloads">
+        <span class="summary-arrow">&#x25BD;</span>
+        <span class="summary-label">DOWNLOADS</span>
+        <span class="summary-value">---</span>
+      </div>
+    </div>
+    <div class="card-stack" id="card-stack"></div>
+  </div>
+
+  <!-- ═══ PROVENANCE PANEL (hidden) ═══ -->
+  <div class="provenance-panel" id="provenance-panel" style="display:none">
+    <h3 class="prov-title">Provenance | Files and Validation Reports</h3>
+    <div class="prov-list" id="prov-list"></div>
+  </div>
+
+  <!-- ═══ ANIMATION OVERLAY ═══ -->
+  <div id="anim-overlay" class="anim-overlay"></div>
+
+  <script type="module">
+    import { loadConfig, getConfig, resolveUrl, getSessionSlug, getSessionConfig, padBundleId } from '../assets/js/config-loader.js';
+    import { loadSessionData } from '../assets/js/data-loader.js';
+    import { PlaybackEngine } from '../assets/js/playback-engine.js';
+    import { BundleLoader } from '../assets/js/bundle-loader.js';
+    import { PngLoader } from '../assets/js/png-loader.js';
+    import { HashChain } from '../assets/js/hash-chain.js';
+    import { AnimationEngine } from '../assets/js/animation-engine.js';
+    import { UIController } from '../assets/js/ui-controller.js';
+
+    async function main() {
+      const slug = getSessionSlug();
+      const config = await loadConfig('../config.json', '../');
+      const session = getSessionConfig(slug);
+      if (!session) {
+        document.body.innerHTML = '<div style="padding:40px;color:#ff5545;font-size:20px">Session not found: ' + slug + '</div>';
+        return;
+      }
+
+      const data = await loadSessionData(slug);
+
+      let maxBundleId = 0;
+      for (const e of data.bundles.events) {
+        const bid = Number(e.bundle_id ?? 0);
+        if (bid > maxBundleId) maxBundleId = bid;
+      }
+
+      const ui = new UIController({ config, sessionConfig: session, slug });
+
+      const pngLoader = new PngLoader(slug, config.png_preload_ahead, config.png_buffer_behind);
+      pngLoader.setDisplayElement(document.getElementById('png-display'));
+      pngLoader.preload(0);
+      pngLoader.displayImmediate(0);
+
+      const bundleLoader = new BundleLoader(slug);
+      await bundleLoader.loadAll();
+
+      const animEngine = new AnimationEngine(config);
+      animEngine.slug = slug;
+      animEngine.pngLoader = pngLoader;
+      animEngine.setElements({
+        pngEl: document.getElementById('png-display'),
+        hashZoneEl: document.getElementById('hash-zone'),
+        cardStackEl: document.getElementById('card-stack'),
+        overlayEl: document.getElementById('anim-overlay'),
+      });
+
+      const videoEl = document.getElementById('video');
+      // Don't set src yet — wait until engine is bound
+
+      // Play/Pause
+      const playBtn = document.getElementById('btn-play-pause');
+      playBtn.addEventListener('click', () => {
+        if (videoEl.paused) { videoEl.play(); } else { videoEl.pause(); }
+      });
+      videoEl.addEventListener('play', () => { playBtn.innerHTML = '&#x23F8;'; });
+      videoEl.addEventListener('pause', () => { playBtn.innerHTML = '&#x25B6;'; });
+
+      // Speed slider
+      const speedSlider = document.getElementById('speed-slider');
+      const speedDisplay = document.getElementById('speed-display');
+      speedSlider.addEventListener('input', () => {
+        const s = parseFloat(speedSlider.value);
+        videoEl.playbackRate = s;
+        animEngine.setSpeed(s);
+        speedDisplay.textContent = s.toFixed(2);
+      });
+
+      // Seek slider
+      const seekSlider = document.getElementById('seek-slider');
+      const seekCurrent = document.getElementById('seek-current');
+      const seekDuration = document.getElementById('seek-duration');
+      function fmtTime(s) { return Math.floor(s/60) + ':' + String(Math.floor(s%60)).padStart(2,'0'); }
+      videoEl.addEventListener('loadedmetadata', () => { if (seekDuration) seekDuration.textContent = fmtTime(videoEl.duration); });
+      videoEl.addEventListener('timeupdate', () => {
+        if (seekCurrent) seekCurrent.textContent = fmtTime(videoEl.currentTime);
+        if (seekSlider && videoEl.duration) seekSlider.value = (videoEl.currentTime / videoEl.duration) * 1000;
+      });
+      seekSlider.addEventListener('input', () => {
+        if (videoEl.duration) videoEl.currentTime = (seekSlider.value / 1000) * videoEl.duration;
+      });
+
+      // Volume slider
+      const volSlider = document.getElementById('vol-slider');
+      volSlider.addEventListener('input', () => {
+        videoEl.muted = false;
+        videoEl.volume = parseFloat(volSlider.value);
+      });
+
+      // PDF toggle + Provenance toggle (mutually exclusive)
+      const pdfToggle = document.getElementById('pdf-toggle');
+      const provToggle = document.getElementById('provenance-toggle');
+      let pdfMode = false, provMode = false;
+
+      function setPdfMode(on) {
+        pdfMode = on;
+        pdfToggle.classList.toggle('active', on);
+        document.getElementById('png-wrap').style.display = on ? 'none' : '';
+        document.getElementById('pdf-wrap').style.display = on ? 'block' : 'none';
+      }
+      function setProvMode(on) {
+        provMode = on;
+        provToggle.classList.toggle('active', on);
+        document.getElementById('provenance-panel').style.display = on ? 'block' : 'none';
+        document.getElementById('left-viewport').style.display = on ? 'none' : 'flex';
+      }
+
+      pdfToggle.addEventListener('click', () => {
+        if (provMode) setProvMode(false);
+        setPdfMode(!pdfMode);
+      });
+      provToggle.addEventListener('click', () => {
+        if (pdfMode) setPdfMode(false);
+        setProvMode(!provMode);
+      });
+      ui.buildProvenanceList(slug);
+
+      const hashChain = new HashChain();
+      hashChain.totalBundles = maxBundleId + 1;
+
+      let lastBundleId = -1;
+
+      const engine = new PlaybackEngine({
+        data, config, slug,
+        onTick: (state) => {
+          ui.onTick(state);
+
+          if (state.bundle.id !== lastBundleId) {
+            lastBundleId = state.bundle.id;
+            pngLoader.onBundleChange(state.bundle.id, maxBundleId);
+            if (state.playback.jumped) pngLoader.displayImmediate(state.bundle.id);
+            bundleLoader.onBundleChange(state.bundle.id);
+
+            // Ensure ALL cards from 0 to current exist (no skipping)
+            animEngine.ensureCards(state.bundle.id, bundleLoader);
+
+            // Update hash zone from bundle data (but do NOT auto-expand cards)
+            const raw = bundleLoader.getCurrentBundle();
+            if (raw) {
+              animEngine.updateFromRawBundle(raw);
+              hashChain.updateFromRawBundle(raw);
+              ui.renderCardHash(state.bundle.id, raw.prev?.last_hash?.value || '');
+              // Tree is rendered on-demand when user clicks to expand — not here
+            }
+          }
+
+          hashChain.updateFromBundleEvents(data.bundles.events, state.bundle.pos);
+
+          if (pdfMode && state.downloads.newFile && state.downloads.sticky?.downloaded_file) {
+            const fname = state.downloads.sticky.downloaded_file;
+            if (fname && !(/^\d{4}__/.test(fname))) {
+              ui.loadPdf(slug, fname);
+            }
+          }
+        },
+        onBundleLifecycle: (sysTimeKey, bundleId, eventData) => {
+          animEngine.onBundleLifecycle(sysTimeKey, bundleId, eventData);
+        },
+      });
+
+      engine.bindVideo(videoEl);
+
+      // NOW set the video source and autoplay — engine listeners are attached
+      videoEl.src = resolveUrl('video', slug, session.video_file);
+      videoEl.play().catch(() => {});
+      PlaybackEngine.applyUrlTimecode(videoEl);
+      if (new URLSearchParams(window.location.search).has('pdf')) setPdfMode(true);
+
+      // Card expand/collapse — click anywhere on header toggles state
+      document.getElementById('card-stack').addEventListener('click', (e) => {
+        // Don't toggle if clicking a link
+        if (e.target.closest('a')) return;
+        const header = e.target.closest('.card-header');
+        if (!header) return;
+        const card = header.closest('.bundle-card');
+        if (!card) return;
+        e.stopPropagation();
+        const toggle = card.querySelector('.card-toggle');
+        const bid = parseInt(card.dataset.bundleId);
+        const isCollapsed = card.classList.contains('collapsed');
+
+        if (isCollapsed) {
+          // EXPAND
+          card.classList.remove('collapsed', 'card-collapse-anim');
+          card.style.maxHeight = '';
+          card.style.animation = 'none';
+          void card.offsetWidth;
+          card.style.animation = '';
+          if (toggle) toggle.innerHTML = '&#x25BC;';
+          let body = card.querySelector('.card-body');
+          if (!body) {
+            body = document.createElement('div');
+            body.className = 'card-body';
+            body.id = `card-body-${bid}`;
+            card.appendChild(body);
+          }
+          if (!body.children.length || body.textContent.trim() === 'Loading...' || body.textContent.trim() === 'Filling...') {
+            body.innerHTML = '<div class="json-tree" style="color:var(--text-muted)">Loading bundle...</div>';
+            const raw = bundleLoader.getBundle(bid);
+            if (raw) ui.renderBundleTree(bid, raw);
+            else bundleLoader.fetchBundle(bid).then(r => { if (r) ui.renderBundleTree(bid, r); });
+          }
+        } else {
+          // COLLAPSE
+          card.classList.add('collapsed');
+          if (toggle) toggle.innerHTML = '&#x25B6;';
+        }
+      });
+
+      // PDF mode: intercept file link clicks to display in viewer
+      document.addEventListener('click', (e) => {
+        const link = e.target.closest('a.json-file-link, a.summary-link, a.dl-link, a.hash-file-link');
+        if (!link) return;
+        if (!pdfMode) return;
+        const href = link.getAttribute('href');
+        if (!href || href === '#') return;
+        if (href.endsWith('.pdf') || href.endsWith('.png')) {
+          e.preventDefault();
+          if (href.endsWith('.pdf')) ui.loadPdfFromUrl(href);
+          else ui.loadImageInViewer(href);
+        }
+      });
+    }
+
+    main().catch(e => {
+      console.error(e);
+      document.body.innerHTML = '<div style="padding:40px;color:#ff5545;font-size:20px">Error: ' + e.message + '</div>';
+    });
+  </script>
+
+</body>
+</html>

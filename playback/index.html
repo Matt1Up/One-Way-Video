@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>One-Way-Video — Session Playback</title>
+  <meta name="description" content="Synchronized playback of One-Way-Video capture sessions: the recording, the hash chain, captured frames, network streams and downloads on one timeline.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/main.css">
+  <style>
+    /* ── Unclamp the body flex from main.css so hero + content can both breathe ── */
+    html, body { height: auto !important; min-height: 100% !important; }
+    body { overflow-y: auto !important; }
+    /* Layout spans the FULL viewport now — sidebar runs all the way to the
+       left edge, main column takes the rest. No max-width on the layout. */
+    .index-layout { min-height: 0 !important; }
+
+    /* ── Forensic hero (sits INSIDE .index-main now, not above it) ──
+       Gradient restored for depth; faint blue radial overlay on top-center
+       gives the hero its forensic glow. Border-bottom provides the visual
+       separation from the body content below. */
+    .evi-hero {
+      position: relative;
+      padding: 44px 30px 38px;
+      margin: -18px -48px 28px -38px;  /* bleed out to the main column's gutters */
+      background: linear-gradient(180deg, #0c0c12 0%, #0e0e1a 50%, #0c0c12 100%);
+      text-align: center;
+      flex-shrink: 0;
+      border-bottom: 1px solid #262638;
+      overflow: hidden;
+    }
+    .evi-hero::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at 50% 0%, rgba(58,134,186,0.10) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    /* Hero content capped at 820 and centered inside the main column. */
+    .evi-hero-inner { position: relative; max-width: 820px; margin: 0 auto; }
+    .evi-hero-badge {
+      display: inline-block;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px; font-weight: 700;
+      color: #3a86ba;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      border: 1px solid rgba(58,134,186,0.45);
+      padding: 8px 22px;
+      border-radius: 4px;
+      margin-bottom: 22px;
+      background: #0c0c12;
+    }
+    .evi-hero-title {
+      font-family: 'IBM Plex Sans', system-ui, sans-serif;
+      font-size: 56px;
+      font-weight: 700;
+      color: #ffffff;
+      line-height: 1.1;
+      margin-bottom: 20px;
+      letter-spacing: -1px;
+    }
+    .evi-hero-title em { font-style: normal; color: #3a86ba; }
+    .evi-hero-subtitle {
+      font-size: 16px;
+      color: #b0b0b0;
+      line-height: 1.75;
+      max-width: 820px;
+      margin: 0 auto 14px;
+    }
+    .evi-hero-subtitle strong { color: #ffffff; }
+    .evi-hero-subtitle em { color: #ffb732; font-style: italic; }
+    .evi-hero-case {
+      display: inline-block;
+      margin-top: 10px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      color: #707070;
+      letter-spacing: 2px;
+    }
+    .evi-hero-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 28px;
+      max-width: 820px;
+      margin: 28px auto 0;
+    }
+    .evi-hero-stat { text-align: center; }
+    .evi-hero-stat .val {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 40px; font-weight: 700;
+      color: #3a86ba;
+      display: block; line-height: 1;
+      letter-spacing: -0.5px;
+    }
+    .evi-hero-stat .val.gold  { color: #ffb732; }
+    .evi-hero-stat .val.green { color: #2de0b6; }
+    .evi-hero-stat .val.cyan  { color: #4eecc8; }
+    .evi-hero-stat .val.white { color: #ffffff; }
+    .evi-hero-stat .lbl {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: #b0b0b0;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-top: 8px;
+    }
+    @media (max-width: 768px) {
+      .evi-hero { padding: 44px 20px 38px; }
+      .evi-hero-title { font-size: 28px; }
+      .evi-hero-subtitle { font-size: 14.5px; }
+      .evi-hero-stats { grid-template-columns: repeat(2, 1fr); gap: 22px; }
+      .evi-hero-stat .val { font-size: 22px; }
+    }
+
+    /* ── Hide the original header (replaced by hero) ── */
+    .index-header { display: none !important; }
+
+    /* ── Sidebar session-cards polish (blue left-edge, tighter, roomier gap) ──
+       Full-viewport-left-edge vertical column. Width dialed back to 300px
+       (from 380 — too wide). Top padding kept small so the first card sits
+       close to the top of the sidebar band. */
+    .index-sidebar {
+      width: 340px !important;
+      min-width: 340px !important;
+      padding: 10px 14px 24px 20px !important;
+      gap: 8px !important;
+      background: #0e0e17;
+      border-right: 1px solid #262638 !important;
+    }
+    .session-card {
+      border-left: 3px solid #3a86ba !important;
+      padding: 8px 14px !important;
+      transition: all 0.2s !important;
+    }
+    .session-card:hover {
+      border-left-color: #3a86ba !important;
+      transform: translateX(3px) !important;
+    }
+    .session-card .card-name {
+      color: #cccccc !important;
+      font-size: 14.5px !important;
+      margin-bottom: 2px !important;
+    }
+    .session-card:hover .card-name { color: #3a86ba !important; }
+    .session-card .card-downloads {
+      font-size: 13px !important;
+      color: #8a8a8a !important;
+    }
+
+    /* ── Main content: tighter left padding so middle gutter matches outer gutters ── */
+    .index-main { padding: 18px 48px 32px 38px !important; }
+    /* Every direct body element inside .index-main is capped at 820 AND
+       centered via margin auto — so on wide screens the text column stays
+       aligned with the (also-centered) hero content above it, instead of
+       left-hugging the column edge. */
+    .index-main > h2,
+    .index-main > h3,
+    .index-main > p,
+    .index-main > ul,
+    .index-main > ol { max-width: 820px; margin-left: auto; margin-right: auto; }
+    /* Stat grid matches the 820-body-column width and centers like the rest;
+       cards have no max-width cap so all three fill the full grid evenly. */
+    .stat-grid { max-width: 820px; margin-left: auto; margin-right: auto; }
+    .stat-card { flex: 1 1 0; max-width: none; }
+
+    /* ── Responsive — below 820 px the columns stack. MAIN (with hero) on
+       TOP, sidebar on BOTTOM. Achieved with flex-direction: column-reverse
+       since the DOM order is sidebar-then-main; the reverse flips them. ── */
+    @media (max-width: 820px) {
+      .index-body { flex-direction: column-reverse; }
+      .index-sidebar {
+        width: 100% !important;
+        min-width: 0 !important;
+        border-right: none !important;
+        border-top: 1px solid #262638 !important;   /* divider above the sidebar, since it's now at the bottom */
+        padding: 14px 16px 20px !important;
+      }
+      .index-main { padding: 14px 20px 28px !important; }
+      .evi-hero { margin: -14px -20px 22px -20px !important; padding: 32px 20px 28px !important; }
+      .evi-hero-title { font-size: 40px !important; }
+    }
+
+    /* ── Main content polish (section-label pattern for h2/h3) ── */
+    .index-main h2 {
+      color: #ffffff !important;
+      font-family: 'IBM Plex Sans', system-ui, sans-serif !important;
+      font-size: 24px !important;
+      letter-spacing: -0.2px !important;
+      margin-bottom: 14px !important;
+      margin-top: 0 !important;
+      position: relative;
+      padding-top: 0;
+    }
+    .index-main h2::before {
+      content: 'System Overview';
+      display: block;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: #3a86ba;
+      margin-bottom: 10px;
+    }
+    .index-main h3 {
+      font-family: 'IBM Plex Mono', monospace !important;
+      font-size: 14px !important;
+      letter-spacing: 4px !important;
+      text-transform: uppercase !important;
+      color: #3a86ba !important;
+      margin: 32px auto 10px !important;  /* auto L/R so they center like the body text */
+      font-weight: 700 !important;
+      max-width: 820px;
+    }
+
+    /* Stat cards polish: tighter borders + unified blue primary (red retired) */
+    .stat-card {
+      border-left: 3px solid transparent !important;
+      transition: border-color 0.2s;
+    }
+    .stat-card.red   { border-left-color: #3a86ba !important; }
+    .stat-card.red .stat-value  { color: #3a86ba !important; }
+    .stat-card.gold  { border-left-color: #ffb732 !important; }
+    .stat-card.green { border-left-color: #2de0b6 !important; }
+
+    /* Main text list bullets: red → blue */
+    .index-main li::marker { color: #3a86ba !important; }
+    .index-main a { color: #3a86ba !important; }
+    .index-main a:hover { color: #ffffff !important; }
+
+  </style>
+</head>
+<body>
+
+
+  <div class="index-layout">
+
+    <!-- Original header now hidden via CSS -->
+    <div class="index-header">
+      <h1>OneWayVideo</h1>
+      <div class="subtitle">Cryptographic Evidence Playback System</div>
+    </div>
+
+    <div class="index-body">
+
+      <!-- LEFT SIDEBAR: Session Navigation — runs full-height from top of
+           .index-body (below the page header) all the way down. Buttons
+           start at the top of this column. -->
+      <div class="index-sidebar" id="session-nav"></div>
+
+      <!-- RIGHT PANEL: Hero + System Information (hero now lives inside
+           the main column so it aligns horizontally with the text below) -->
+      <div class="index-main">
+
+        <!-- HERO — inside the main column, not the full viewport -->
+        <section class="evi-hero">
+          <div class="evi-hero-inner">
+            <div class="evi-hero-badge">Cryptographic Evidence Playback &middot; Hash-Chained &middot; OTS Anchored</div>
+            <h1 class="evi-hero-title">One<em>Way</em>Video</h1>
+            <p class="evi-hero-subtitle">
+              A hash-chained capture and playback system designed for court-record collection. During each session, a Python
+              controller bundles an <strong>OBS screenshot</strong>, <strong>all HTTP requests (HAR)</strong>, <strong>every
+              file download</strong>, <strong>all TCP/IP packets</strong>, and the <em>SHA-256 hash of the previous bundle</em>
+              &mdash; creating an unbreakable cryptographic chain. Every bundle is independently verifiable. Every file is downloadable.
+            </p>
+            <div class="evi-hero-stats">
+              <div class="evi-hero-stat"><span class="val" id="hero-session-count">&mdash;</span><span class="lbl">Capture Sessions</span></div>
+              <div class="evi-hero-stat"><span class="val gold" id="hero-total-dl">&mdash;</span><span class="lbl">Total Downloads</span></div>
+            </div>
+          </div>
+        </section>
+
+        <h2>What Is This System?</h2>
+        <p>
+          OneWayVideo is a cryptographic evidence capture and playback system designed for court record collection.
+          During each capture session, a Python controller runs a hash-chain loop every ~7 seconds, bundling:
+          an OBS screenshot (PNG), all HTTP requests (HAR), all file downloads, all TCP/IP packets, and a
+          SHA-256 hash of the previous bundle — creating an unbreakable cryptographic chain.
+        </p>
+        <p>
+          This playback system synchronizes all captured data to the video timeline so a viewer can see
+          exactly what was happening at every moment, with mathematical proof it wasn't fabricated.
+          Every bundle is independently verifiable. Every file is downloadable. Every hash is checkable.
+        </p>
+
+        <h3>Key Statistics</h3>
+        <div class="stat-grid">
+          <div class="stat-card red">
+            <div class="stat-value" id="session-count">---</div>
+            <div class="stat-label">Capture Sessions</div>
+          </div>
+          <div class="stat-card gold">
+            <div class="stat-value" id="total-downloads">---</div>
+            <div class="stat-label">Total Downloads</div>
+          </div>
+        </div>
+
+        <h3>Dual Timestamping</h3>
+        <p>
+          Every bundle and screenshot is independently timestamped through two mechanisms:
+          Bitcoin blockchain anchoring via OpenTimestamps (OTS) and Roughtime network time verification.
+          This provides cryptographic proof of <em>when</em> each bundle was created, anchored to
+          independent global time sources that cannot be manipulated retroactively.
+        </p>
+
+        <h3>How It Works</h3>
+        <p>
+          The capture system records everything that happens during a court record collection session.
+          Every ~7 seconds, a new bundle is created containing a snapshot of all activity.
+          Each bundle includes the SHA-256 hash of the previous bundle, creating a chain where
+          any modification to any bundle would break every subsequent hash — making tampering
+          mathematically detectable.
+        </p>
+
+        <h3>Sessions</h3>
+        <p>
+          Each entry in the left column is one capture session listed in <code>config.json</code>.
+          A session directory holds the recording, every bundle and captured frame with its
+          OpenTimestamps and Roughtime receipts, the downloaded files with their signed vault copies,
+          and the verification reports. Open a session to play the recording with the hash chain,
+          frames, network streams and downloads scrolling in sync.
+        </p>
+      </div>
+
+    </div>
+  </div>
+
+  <script type="module">
+    async function main() {
+      const resp = await fetch('config.json', { cache: 'no-store' });
+      if (!resp.ok) throw new Error('Failed to load config.json');
+      const config = await resp.json();
+
+      const nav = document.getElementById('session-nav');
+      let totalDownloads = 0;
+
+      for (const session of config.sessions) {
+        totalDownloads += session.downloads || 0;
+
+        const card = document.createElement('a');
+        card.href = 'pages/' + session.slug + '.html';
+        card.className = 'session-card';
+        card.innerHTML = `
+          <div class="card-name">${esc(session.name)}</div>
+          <div class="card-downloads">${session.downloads} downloads</div>
+        `;
+        nav.appendChild(card);
+      }
+
+      const totalEl = document.getElementById('total-downloads');
+      if (totalEl) totalEl.textContent = totalDownloads.toLocaleString();
+      const heroTotalEl = document.getElementById('hero-total-dl');
+      if (heroTotalEl) heroTotalEl.textContent = totalDownloads.toLocaleString();
+      for (const id of ['session-count', 'hero-session-count']) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(config.sessions.length);
+      }
+    }
+
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    main().catch(e => {
+      console.error(e);
+      document.body.innerHTML = '<div style="padding:40px;color:#ff5545;font-size:20px">Error: ' + e.message + '</div>';
+    });
+  </script>
+
+</body>
+</html>

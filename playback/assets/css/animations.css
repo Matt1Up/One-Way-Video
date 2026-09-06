@@ -1,0 +1,52 @@
+/* ═══════════════════════════════════════════════════════════
+   OneWayVideo v3 — Hash-Loop Animation System
+   All driven by actual bundle lifecycle timestamps.
+   --anim-scale set by JS to match playback speed.
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── PNG Slide In (from behind video) ─────────────────── */
+.png-slide-in {
+  animation: slideFromRight calc(250ms * var(--anim-scale, 1)) ease-out forwards;
+}
+@keyframes slideFromRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+
+/* ── Hash value flash red (on bundle close) ───────────── */
+.hash-flash-red {
+  animation: hashFlashRed calc(600ms * var(--anim-scale, 1)) ease-out forwards;
+}
+@keyframes hashFlashRed {
+  0%   { background: var(--red-bg); color: var(--text-bright); }
+  100% { background: rgba(255,183,50,0.04); color: var(--gold); }
+}
+
+/* ── Card Appear (new bundle card spawns at top) ──────── */
+.card-appear {
+  animation: cardAppear calc(300ms * var(--anim-scale, 1)) ease-out forwards;
+}
+@keyframes cardAppear {
+  from { opacity: 0; max-height: 0; transform: scaleY(0.5); }
+  to   { opacity: 1; max-height: 600px; transform: scaleY(1); }
+}
+
+/* ── Card Collapse (bundle closes, shrinks to row) ────── */
+/* Card collapse animation — NO forwards fill, .collapsed class handles final state */
+.card-collapse-anim {
+  animation: cardCollapse calc(400ms * var(--anim-scale, 1)) ease-in;
+}
+
+/* ── PNG Loading Pulse ────────────────────────────────── */
+.png-loading {
+  animation: pngPulse 1.5s ease-in-out infinite;
+}
+@keyframes pngPulse {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.5; }
+}
+
+/* ── Hash clone fly transitions (handled by JS positioning) ── */
+/* The .hash-clone elements are positioned absolutely by JS,
+   then get .fly-up or .fly-down added to animate to destination.
+   The transition is on the .hash-clone class itself in main.css. */
