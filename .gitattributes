@@ -3,3 +3,9 @@
 
 # Keep shell scripts LF
 *.sh text eol=lf
+
+# Evidence files: never normalise. Their SHA-256 is what the reports and receipts
+# commit to, so the bytes in the repo must equal the bytes that were captured.
+examples/**/sample-bundle-files/** -text
+*.ots binary
+*.png binary
