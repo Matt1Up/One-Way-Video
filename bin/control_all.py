@@ -760,7 +760,10 @@ def _detect_running():
 def main():
     ensure_runtime_dirs()  # <- create run/, logs/, locks/ if missing
 
-    ap = argparse.ArgumentParser(description="Evidence-capture controller with singleton locks.")
+    # `evcap` (evidence_capture/cli.py) execs this file and sets EVCAP_PROG so the
+    # usage line reads "evcap ..." instead of "control_all.py ...".
+    prog = os.environ.get("EVCAP_PROG") or os.path.basename(sys.argv[0])
+    ap = argparse.ArgumentParser(prog=prog, description="Evidence-capture controller with singleton locks.")
     sub = ap.add_subparsers(dest="mode")
 
     sub.add_parser("interactive", help="Run interactive REPL (recommended).")
@@ -783,7 +786,7 @@ def main():
 
     if args.mode == "immediate":
         if not args.cmd:
-            print("usage: control_all.py immediate -- <command>", file=sys.stderr)
+            print(f"usage: {prog} immediate -- <command>", file=sys.stderr)
             sys.exit(2)
         line = " ".join(args.cmd)
         try:

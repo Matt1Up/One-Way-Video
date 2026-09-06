@@ -25,6 +25,7 @@ def main(argv: list[str] | None = None) -> None:
             f"       repo root resolved to {ROOT}. Run from an editable install "
             f"(pip install -e .) of a checkout, or set EVCAP_HOME to the checkout."
         )
+    os.environ.setdefault("EVCAP_PROG", "evcap")   # so the controller's usage line says "evcap"
     os.execv(str(PY), [str(PY), str(script), *args])
 
 
