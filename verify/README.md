@@ -196,6 +196,19 @@ Known weaknesses of the checks themselves:
   `0GD7c3yP8xEc4Zl2zeuN2SlLvDVVocjsPSL8/Rl/7zg=` (`Cloudflare-Roughtime-2`, from
   the [roughtime ecosystem list](https://github.com/cloudflare/roughtime/blob/master/ecosystem.json)).
   Every receipt in the example session carries that key.
+- **`streams.http_events` in sessions recorded before v2.0 can contain stale
+  entries.** Two capture-stage defects, both fixed in v2.0: the bundle writer
+  took the *oldest* five entries of a newest-first list, and the session-start
+  reset cleared `streams.http` and `streams.net` but not `streams.http_events`.
+  So entries from an earlier session could appear in a later session's bundles,
+  carrying their original, earlier timestamps. The scope is exactly that one
+  informational stream: `streams.http` and `streams.net` were reset correctly,
+  and the hash chain, the frame hashes and both timestamp mechanisms are
+  unaffected. The Fraud-Reports verification in `examples/` stands as run. When
+  reading an older session, treat `streams.http_events` entries whose timestamps
+  precede the session start as artefacts of this bug; `streams.http` carries the
+  same requests correctly, and `postprocess/build_http_streams.py` exists to
+  rebuild the playback stream from it.
 - **Stage 05 timecodes** were wrong before v2.0: the script assumed a fixed CST
   offset (one hour off for daylight-time sessions) and, on Python 3.10, silently
   dropped every `Z`-suffixed timestamp. Both are fixed in this version. The

@@ -170,13 +170,19 @@ def state_update(updates: dict) -> None:
 
 
 def state_clear_streams_and_files_recent() -> None:
-    """Zero out streams (http, net), http_events, and files_recent."""
+    """Zero out streams (http, net, http_events) and files_recent.
+
+    Counters (streams.http_index / net_index / http_events_index) are left
+    alone on purpose: they are monotonic across sessions and every consumer
+    de-duplicates by event index within a session rather than expecting 1.
+    """
     now = ts_local_ns()
 
     def _update(st):
         streams = st.get("streams") or {}
         streams["http"] = []
         streams["net"] = []
+        streams["http_events"] = []   # was missing before v2.0: stale events leaked into new sessions
         st["streams"] = streams
         st["http_events"] = []
         st["files_recent"] = []

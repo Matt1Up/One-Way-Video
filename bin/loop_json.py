@@ -168,9 +168,15 @@ def main():
     files_recent_list = st_now.get("files_recent") or []
     files_recent_freeze_sys = ts_local_ns()
 
-    # scoped snapshot of streams.http_events tail
+    # scoped snapshot of the NEWEST streams.http_events entries.
+    # httpstream_json.py prepends (newest first, capped at HTTP_EVENTS_MAX), so the
+    # head of the list is the most recent activity, same as snapshot_stream() for
+    # streams.http / streams.net. Before v2.0 this took the tail ([-5:]), i.e. the
+    # OLDEST entries, which together with the missing reset in
+    # state_clear_streams_and_files_recent() put a previous session's events into
+    # new bundles.
     _http_events_all = (st_now.get("streams") or {}).get("http_events") or []
-    _http_events_tail = _http_events_all[-5:] if isinstance(_http_events_all, list) else []
+    _http_events_tail = _http_events_all[:5] if isinstance(_http_events_all, list) else []
     _http_events_freeze_sys = ts_local_ns()
 
     # 7) Build bundle JSON
