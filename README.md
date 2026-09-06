@@ -1,308 +1,192 @@
-# Evidence-Capture Session Controller
+# One-Way-Video
 
-A reproducible capture stack for browser/network activity and on-screen proof, orchestrated by a single controller. It couples **mitmproxy**, **Firefox (custom profile)**, **OBS Studio (virtual camera + recording control)**, and **local viewers** with a **bundle-hash loop** and dual timestamping (**OpenTimestamps + Roughtime**).
-[![One-Way Video flow](images/One-Way-Video-FLOW_200_border.png)](images/One-Way-Video-FLOW_200_border.png)
+Record a browser session so that anyone can later verify it was not fabricated,
+edited, or back-dated, without having to trust the person who recorded it.
 
-<p align="center">
-  <a href="https://matt1up.substack.com/p/one-way-video">
-    <img alt="Watch the demo" src="https://img.shields.io/badge/Watch%20the%20demo-▶%20Substack-2ea44f">
-  </a>
-</p>
+[![ci](https://github.com/Matt1Up/One-Way-Video/actions/workflows/ci.yml/badge.svg)](https://github.com/Matt1Up/One-Way-Video/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/code-MIT-blue.svg)](LICENSE)
+[![Docs: CC BY 4.0](https://img.shields.io/badge/docs-CC%20BY%204.0-lightgrey.svg)](LICENSE-docs)
+[![Live demo](https://img.shields.io/badge/live%20demo-15%20sessions-2ea44f)](https://mncourtfraud.com/evidence/)
+[![Write-up](https://img.shields.io/badge/write--up-Substack-orange)](https://matt1up.substack.com/p/one-way-video)
 
+It is three stages in one repository:
 
-> **Main entrypoint:** `control-all.py`
+| stage | directory | what it does |
+|---|---|---|
+| **1. Capture** | `bin/`, `evidence_capture/` | Firefox through mitmproxy, OBS recording the screen. Every few seconds a JSON *bundle* is written holding the previous bundle's SHA-256, the current frame's hash, and the network activity since the last one. The previous hash is shown in an on-screen strip, so the chain is visible inside the video itself. Downloads are hashed and sealed into signed PDFs. Everything is timestamped twice: OpenTimestamps (Bitcoin) and Roughtime (signed time from Cloudflare). |
+| **2. Verify** | `verify/` | A batch pipeline that re-hashes every file, re-derives the chain, **crops the strip off every captured frame, OCRs the hash, and compares it to the chain**, upgrades the OpenTimestamps receipts and reads their Bitcoin block, and checks the Ed25519 signatures and nonce binding of every Roughtime receipt. Output: CSV reports anyone can read. |
+| **3. Publish** | `postprocess/`, `playback/` | Aligns everything to the video's 30 fps timeline and plays it in a browser with the chain, frames, network streams and downloads scrolling in sync. Live with 15 real sessions at **<https://mncourtfraud.com/evidence/>**. |
 
----
+Version 1.0 of this repository contained only the first stage. Version 2.0
+publishes the other two for the first time.
 
-## Table of Contents
+## What a verified session proves
 
-- [Overview](#overview)  
-- [Key Features](#key-features)  
-- [Architecture](#architecture)  
-- [Prerequisites](#prerequisites)  
-- [Configuration](#configuration)  
-  - [OBS Studio WebSocket & Virtual Camera](#obs-studio-websocket--virtual-camera)  
-  - [Firefox Profile & Downloads](#firefox-profile--downloads)  
-  - [PDF Signing Keys (Evidence Vaults)](#pdf-signing-keys-evidence-vaults)  
-- [Commands (via `control-all.py`)](#commands-via-control-allpy)  
-  - [`ffox`](#ffox)  
-  - [`hash`](#hash)  
-  - [`vcam`](#vcam)  
-  - [`mitm`](#mitm)  
-  - [`net`](#net)  
-  - [`watch-start`](#watch-start)  
-  - [`watch-clear`](#watch-clear)  
-  - [`ws_dl`](#ws_dl)  
-  - [`ws_bf1`](#ws_bf1)  
-  - [`ws_bf2`](#ws_bf2)  
-  - [`start_session`](#start_session)  
-  - [`stop_session`](#stop_session)  
-- [Quickstart: Typical Capture Flow](#quickstart-typical-capture-flow)  
-- [Local Web Viewers](#local-web-viewers)  
-- [Timestamping Method (OTS + Roughtime)](#timestamping-method-ots--roughtime)  
-- [Safety Notes & Troubleshooting](#safety-notes--troubleshooting)  
-- [Roadmap / Ideas](#roadmap--ideas)  
-- [License](#license)
+If every check in `verify/` passes, then, assuming SHA-256 and Ed25519 hold:
 
----
+- **The files are intact.** Every bundle, frame and receipt is exactly the one
+  whose hash the others recorded. Change one byte and a check fails.
+- **The order is intact.** The bundles form one chain; nothing was inserted,
+  removed or reordered.
+- **The screen showed the chain.** Each frame captured for bundle *N* was
+  displaying the hash of bundle *N−1*, read back by OCR. The recording shows the
+  same strip, so it can be checked against the chain frame by frame.
+- **It existed by then.** Every file existed before the Bitcoin block that
+  attests it, and every receipt existed at the Roughtime midpoint ±1 s.
 
-## Overview
+It does **not** prove that the material was not made *earlier* than the
+timestamps say, that the remote websites served genuine content (TLS is
+terminated on the capture machine), or anything about the MP4 itself, which is
+tied to the chain only visually. [`verify/README.md`](verify/README.md) states
+each of these precisely, along with the weaknesses of the checks themselves and
+a roadmap item that would add a lower bound on time. Read that section before
+relying on a session.
 
-The system orchestrates a **repeatable capture loop** (“bundle” every *X* seconds) that:
+## See it
 
-1. Runs a **Firefox** session pinned to a **mitmproxy** proxy.
-2. Records **frame images via OBS virtual camera**.
-3. Writes **JSON bundles** to `RUN/bundles/` (`0000.json`, `0001.json`, …) and shows the **previous bundle SHA-256** in a narrow overlay window to create a visible **hash-chain** across time.
-4. Continuously monitors `~/downloads` to seal files into **digitally signed “evidence vault” PDFs**.
-5. Offers **live viewers** at `http://127.0.0.1:8050/` for the hash loop, state, and bundle cards.
+- **Live playback**, 15 sessions of Minnesota court-record collection:
+  <https://mncourtfraud.com/evidence/>
+- **A verified example you can read without installing anything:**
+  [`examples/`](examples/) holds the reports from a real 36-minute session
+  (280 bundles, 558 receipts, all anchored), sample bundle files, the OCR
+  strips, and the six filed complaints the session recorded.
+- **The write-up:** <https://matt1up.substack.com/p/one-way-video>
 
----
+[![One-Way-Video flow](images/One-Way-Video-FLOW_200_border.png)](images/One-Way-Video-FLOW_200_border.png)
 
-## Key Features
+## Install
 
-- Isolated **Firefox** profile routed through **mitmproxy**  
-- **OBS** virtual camera auto-enable + start/stop recording by command  
-- **Bundle hash-chain** with visible on-screen previous-hash overlay  
-- **Download watcher**: auto-hash, `pdfsig`, `exiftool`, wrap into **signed PDFs**  
-- **Wireshark-like** JSON lines stream (`network_stream.jsonl.zip`)  
-- **Local web viewers** (Dash) for state, live hash, and bundle “cards”  
-- **Dual timestamping**: OpenTimestamps (BTC) + Roughtime receipts
-
----
-
-## Architecture
-
-```
-control-all.py
-├─ ffox → custom-profile Firefox (proxy: mitm)
-├─ mitm → mitm_dump_control.py + httpstream_json.py
-├─ vcam → enable OBS Virtual Camera (via obs_studio_ctrl.py)
-├─ hash → overlay_json.py (1920×72, Liberation Mono 36, refresh 0.5s)
-├─ net  → netstream_json.py (Wireshark-like stream; zipped on stop)
-├─ watch-start / watch-clear → download_watcher_json.py + housekeeping
-├─ ws_* → local web servers and feeders @ http://127.0.0.1:8050/
-├─ start_session "<name>" <interval> → bin/start_json.py
-└─ stop_session → bin/stop_json.py (finalize .dump → sanitized HAR)
-```
-
----
-
-## Prerequisites
-
-- **Ubuntu** (tested) or comparable Linux environment  
-- **Python 3.x** with typical CLI tooling  
-- **OBS Studio** with:
-  - **OBS WebSocket** enabled (Tools → WebSocket Server Settings)
-  - **OBS Virtual Camera** available
-- **mitmproxy**
-- **exiftool**, **pdfsig**, **zip**  
-- **Firefox** with **custom profile** (proxy set to mitm)  
-- Fonts: **Liberation Mono** (for the overlay)  
-
-> Some actions (e.g., turning on OBS Virtual Camera) may require passwordless `sudo` via a small setup script (see below).
-
----
-
-## Configuration
-
-### OBS Studio WebSocket & Virtual Camera
-
-1. In OBS: **Tools → WebSocket Server Settings → Show Connect Info → Copy Server IP**.  
-2. Update `OBS_HOST` in `obs_studio_ctrl.py` with that IP/port.
-3. Ensure the helper script to start the virtual camera has the right privileges (example):
-   - `/usr/local/sbin/obs_vcam_setup.sh` (the working copy may be in `/bin`)
-   - Configure passwordless sudo as needed.
-
-### Firefox Profile & Downloads
-
-- The **custom Firefox profile** used by `ffox` must:
-  - Route through the local **mitmproxy**.
-  - Use `~/downloads` (or your chosen path) as the **default download folder**.
-
-### PDF Signing Keys (Evidence Vaults)
-
-- `signature/sign_pdfs.py` must be configured with your signing materials:
-  - `DEFAULT_KEY_PEM`  
-  - `DEFAULT_CERT_PEM`  
-  - `DEFAULT_P12` (if using a PKCS#12)
-
----
-
-## Commands (via `control-all.py`)
-
-> Command names below match the controller. Where hyphen/underscore variants exist in your environment, use the exact spellings wired in your `control-all.py`.
-
-### `ffox`
-Launches **Firefox** with a **custom profile** that is pre-configured to use the **mitmproxy** server.  
-This keeps capture browsing separate from your normal Firefox.  
-**OBS** should capture **this** window for the stream.
-
-### `hash`
-Runs `overlay_json.py` to open a **1920×72 px** overlay window with **Liberation Mono Bold 36pt**, refreshing **every 0.5s**.  
-Shows the **last bundle hash** so viewers can **visually verify** the hash-chain in the OBS recording.
-
-### `vcam`
-Turns on the **OBS Virtual Camera**.  
-Requires `OBS_HOST` to be set correctly in `obs_studio_ctrl.py`.  
-Remains active; start/stop **recording** is controlled by session start/stop.
-
-### `mitm`
-Starts the **mitmproxy** stack (`mitm_dump_control.py` + `httpstream_json.py`).  
-Provides internet to the `ffox` browser and writes `.dump` for later HAR conversion.
-
-### `net`
-Runs `netstream_json.py`, creating a **Wireshark-like** TCP/IP stream (JSON lines).  
-- Included in each bundle  
-- Also persisted as `RUN/bundles/network_stream.jsonl.zip` on session stop
-
-### `watch-start`
-Starts `download_watcher_json.py`, monitoring the **Downloads folder**.  
-Each new file is:
-- **Hashed**, run through **pdfsig**/**exiftool**
-- Logged into `RUN/downloaded_files.json`
-- **Embedded into a signed PDF “evidence vault”** (via `signature/sign_pdfs.py`)  
-> ⚠️ **Only one watcher instance should run**. Multiple instances cause duplicates/breakage. This is why it’s commented out in `start_json.py` by default.
-
-### `watch-clear`
-**One-shot cleanup**: clears the downloads folder and logs, resets state for a fresh session, and updates `RUN/state.json`.  
-Safe to run even if `watch-start` is active.  
-> ⚠️ **Destructive**. Move/archive any prior evidence first.
-
-### `ws_dl`
-Starts `RUN/web-server/local_web_server_5.py`.  
-Main viewer at **http://127.0.0.1:8050/**.  
-Uses config at `ws_dir/viewer.config.json`.
-
-### `ws_bf1`
-Runs `RUN/web-server/live_hash_loop.py`.  
-- Watches `RUN/bundles/` (default poll **0.5s**)  
-- **Prepends** updates to `--out RUN/web-server/live_hash_loop.txt`  
-- Drives the **Live Hash-Loop** panel in the viewer
-
-### `ws_bf2`
-Runs `RUN/web-server/combined.py`.  
-- Watches `RUN/bundles/` (default poll **0.5s**)  
-- **Prepends** to `--out RUN/web-server/combined.json`  
-- Backs the **Cards** (collapsible bundles) view in the viewer
-
-### `start_session`
-`bin/start_json.py`
-
-Usage:
-```bash
-start_session "<Session Name Here>" 10.0
-# i.e., start_session "<name>" <interval_sec>
-```
-
-What happens:
-- Initializes `RUN/state.json` and writes **`0000.json`** from a 100-row system-time sample (`start_time.json`).
-- **SHA-256** of `start_time.json` becomes the **initial nonce**.
-- The **interval** controls the loop that triggers `loop_json.py`, which writes each subsequent bundle.
-- The overlay shows **previous bundle hash** to maintain a visible **hash-chain** across captured frames.
-- `mitm_dump_control.py` `--out-dir` determines where the main `.dump` lives; the **session name** standardizes filenames for `.dump` and derived HAR.
-
-### `stop_session`
-`bin/stop_json.py`
-
-What happens:
-- Gracefully stops `capture_randomized_save_json.py` (waits up to one interval to finish the last loop).
-- Stops all capture services and **OBS recording**.
-- Waits for `DEFAULT_OUT_DIR/<SESSION>.dump.ready`.
-- Converts the main `.dump` into a **sanitized/redacted HAR** written to `DEFAULT_HAR_OUTDIR`.
-
----
-
-## Quickstart: Typical Capture Flow
+To **verify** someone else's session you need Python, Tesseract and the `ots`
+tool, nothing else:
 
 ```bash
-# 1) Start virtual cam & overlay
-vcam
-hash
-
-# 2) Start proxy and browser
-mitm
-ffox
-
-# 3) (Optional) Start the download watcher
-watch-start
-
-# 4) (Optional) Launch local viewers
-ws_dl
-ws_bf1
-ws_bf2
-
-# 5) Begin a capture session (every 10s)
-start_session "Case Study – MCRO" 10.0
-
-# ...perform your browsing / downloads...
-
-# 6) Stop the session (finalizes dump → sanitized HAR; zips network stream)
-stop_session
+git clone https://github.com/Matt1Up/One-Way-Video.git
+cd One-Way-Video
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e ".[verify]"
+sudo apt install tesseract-ocr
 ```
 
-> **Cleanup:** If preparing for a fresh run, use `watch-clear` (destructive).
+To **capture** you need the whole stack: OBS with its WebSocket server, a
+virtual camera kernel module, mitmproxy in its own virtualenv, a Firefox profile
+that trusts the proxy, and a signing key. `setup.sh` does all of it on a fresh
+Ubuntu machine in eight steps and is safe to re-run:
 
----
+```bash
+bash setup.sh                 # do not run with sudo; it asks when it needs it
+source .env                   # written by the last step
+python3 bin/check_deps.py     # every package, tool, font, key, and a live OBS WebSocket check
+```
 
-## Local Web Viewers
+## Quickstart
 
-Accessible at **http://127.0.0.1:8050/** when `ws_dl` (and optionally `ws_bf1`, `ws_bf2`) are running.
+### Capture a session
 
-- **VIEW: JSON Viewer, PROFILE: File Downloads**  
-  See all session downloads + `pdfsig`/`exiftool` details.
-- **VIEW: Live Feed, PROFILE: File Downloads**  
-  See the **Live Hash-Loop** (Bundle → Frame → Bundle → Frame …).
-- **VIEW: JSON Viewer, PROFILE: State**  
-  Inspect current `RUN/state.json`.
-- **VIEW: Cards, PROFILE: Cards**  
-  Collapsible tiles for **each bundle** in `RUN/bundles`.
+```bash
+evcap interactive             # == python3 bin/control_all.py interactive
+> start_session "My Session" 8
+# ... browse in the Firefox window that opened; downloads are sealed as they arrive ...
+> stop_session
+```
 
----
+`start_session` turns on the virtual camera, the overlay, Firefox, the packet
+stream and the download watcher, then starts mitmproxy, OBS recording and the
+capture loop at the given interval. `stop_session` tears it all down, converts
+the proxy dump to a HAR, and moves the session into `sessions/<name>/`. Every
+component can also be started and stopped individually; see
+[`docs/commands.md`](docs/commands.md).
 
-## Timestamping Method (OTS + Roughtime)
+### Verify a session
 
-Every bundle (and key artifacts like `start_time.json` and frame PNGs) is timestamped by:
+```bash
+python3 verify/00_RUN_all_bundle_processing.py --bundles-dir sessions/<name>/bundles
+```
 
-1. **OpenTimestamps (.ots)** → anchors to **Bitcoin** for immutability.  
-2. **Roughtime** → generates a JSON receipt binding the **SHA-256 of the `.ots` file itself** to a time-stamped proof.
+Five minutes for a typical session. Reports land next to the bundles. What to
+open first is in [`docs/verification.md`](docs/verification.md).
 
-Artifacts appear as:
-- `xxxx.json.ots`
-- `xxxx.json.ots__time-stamp.json`
-- `xxxx.png.ots__time-stamp.json`
+### Publish a session
 
-Tools live under `/time/` (e.g., `time/roughtime_client.py`).
+```bash
+python3 postprocess/final_conversion.py --session-dir sessions/<name>
+# copy the outputs into playback/data/<slug>/ as described in playback/README.md,
+# add the session to playback/config.json, then:
+python3 playback/serve.py --port 8000
+```
 
----
+## Repository layout
 
-## Safety Notes & Troubleshooting
+```
+bin/                capture-stage scripts (controller, loop, proxy addon, watchers, overlay, signing)
+evidence_capture/   the shared package: paths, locked state, hashing, time, receipts, `evcap`
+verify/             the six-stage verification pipeline + Roughtime verifier + README
+postprocess/        session → playback data (timecodes, HAR extraction, converters)
+playback/           the browser player (HTML/CSS/JS), config schema, range-request server
+examples/           a real session's verification reports, samples, and filed complaints
+docs/               architecture, configuration, commands, verification, troubleshooting
+tests/              unit tests (chain checks, atomic state, receipt verification, time parsing)
+overlay/            browser-source overlay pages used in the OBS scene
+run/web-server/     optional local viewers for a session in progress
+setup.sh            fresh-Ubuntu installer; requirements*.txt; .env.example
+```
 
-- **Single watcher instance:** Ensure only **one** `download_watcher_json.py` is running to avoid duplicates.  
-- **OBS control:** If `vcam` or recording toggles fail, confirm:
-  - `OBS_HOST` (IP/port) in `obs_studio_ctrl.py`
-  - OBS is running; WebSocket enabled; permissions set for virtual camera.
-- **Destructive cleanup:** `watch-clear` **wipes** downloads/logs. **Backup first**.  
-- **Firefox profile:** Proxy and default download folder must be correct; otherwise downloads won’t be captured/sealed.  
-- **Keys & certs:** `signature/sign_pdfs.py` must point to valid signing materials.
+Runtime directories (`run/`, `downloads/`, `sessions/`, `captures/`) are
+git-ignored and hold real evidence; nothing from them belongs in a commit.
 
----
+## Limitations, honestly
 
-## Roadmap / Ideas
+- The timestamps are upper bounds ("no later than"). See the roadmap section of
+  `verify/README.md` for the two-line change that would add a lower bound.
+- OCR reads the 64-character strip exactly about 40 % of the time; the check
+  uses a 6-character window and keeps the processed strips for a human to look
+  at.
+- Stage 06 reads the Bitcoin block from `ots info` and looks it up on
+  `blockstream.info`. For a fully independent check, run `ots verify` against
+  your own Bitcoin Core node; the original receipts are shipped unmodified.
+- Sessions recorded before v2.0 can carry stale entries in one informational
+  field of their bundles (`streams.http_events`); the defect, its exact scope
+  and its fix are documented in `verify/README.md`. Verification results and
+  published playback data are unaffected.
+- The capture stage is Linux-only and was built for one operator's workflow. It
+  works; it is not polished software.
 
-- Replace visible 64-char hash string with a **V1 QR code (21×21 px)** anchored at a fixed pixel region in the frame (no quiet zone required if pixel-perfect).  
-- Optionally **encode entire bundles into QR tiles** in a pre-defined area of the frame (or hide bits within odd/even pixel parity for **invisible watermarking**).  
-- Lower capture frequency (e.g., **4× per minute**) while keeping high verification value.  
-- Add strict **pixel-accuracy validation** for the overlay region (useful for automated verification).
+## Intended use
 
----
+This tool intercepts TLS and records the screen. It is built for one thing:
+recording **your own** browsing of **public records** on **your own** machine,
+so that what you saw and downloaded can be shown to others with evidence that it
+was not altered afterwards. It is not designed for, and must not be pointed at,
+anyone else's traffic or device. Recording laws, terms of service, and rules of
+evidence vary by place and by court; whether a verified session is admissible or
+persuasive in any proceeding is a question for a lawyer, not for this README.
+The verification pipeline, by contrast, is meant for anyone: a journalist, a
+clerk, an opposing expert. That is the point.
+
+## Documentation
+
+- [`docs/architecture.md`](docs/architecture.md) — how the three stages fit, data formats, ports
+- [`docs/configuration.md`](docs/configuration.md) — every environment variable, Firefox profile, OBS
+- [`docs/commands.md`](docs/commands.md) — controller commands and every script
+- [`docs/verification.md`](docs/verification.md) — verifying a session you were handed
+- [`docs/troubleshooting.md`](docs/troubleshooting.md)
+- [`verify/README.md`](verify/README.md), [`postprocess/README.md`](postprocess/README.md),
+  [`playback/README.md`](playback/README.md), [`examples/README.md`](examples/README.md)
+- [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md)
+
+## Background
+
+One-Way-Video was built to document irregularities in Minnesota court records
+(MCRO and CourtListener) in a way that could withstand the accusation of
+fabrication. The irregularity in question: across thousands of court orders
+retrieved from the state's public portal, a large share contained no text
+specific to the case they were issued in, and a claim like that is only as good
+as the proof that the documents really were retrieved, unaltered, from the
+court's own portal on the date stated. The capture stage was written first,
+script by script, as the problem became clear; the verification and playback
+stages followed. Several filenames still carry the marks of that history and
+are deliberately unchanged.
 
 ## License
 
-Specify your license here (e.g., MIT, Apache-2.0).  
-
----
-
-**Notes**
-
-- This system was designed to document and verify **judicial-record irregularities** (e.g., MCRO) and to cryptographically bind **CourtListener** archive states to a **time-stamped**, **chain-verifiable** capture.  
-- The large overlayed hash promotes **human-readable verification** during review. For compact archives, move to QR or embedded bit-schemes later.
+Code is MIT ([`LICENSE`](LICENSE)). Documentation and media are CC BY 4.0
+([`LICENSE-docs`](LICENSE-docs)). Copyright © 2025-2026 Matt Guertin.
